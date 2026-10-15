@@ -1,175 +1,249 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Security DNS - Hide your DNS and bypass DPI</title>
   <meta name="description" content="Security DNS encrypts your DNS queries and bypasses Deep Packet Inspection, so your ISP cannot easily see the websites you visit. Open source, MIT licensed." />
-  <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // Tailwind configuration: neon accent palette and monospace stack.
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            neon: { DEFAULT: '#22d3ee', dim: '#0891b2' },
-            matrix: '#4ade80'
-          }
+    // Apply the saved theme before first paint to avoid a flash of the wrong colors.
+    (function () {
+      try {
+        var saved = localStorage.getItem('sdns-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
         }
-      }
-    };
+      } catch (e) { /* storage unavailable: keep the default theme */ }
+    })();
   </script>
   <style>
-    /* Faint grid behind the hero section. */
-    .grid-bg {
-      background-image:
-        linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(34, 211, 238, 0.06) 1px, transparent 1px);
-      background-size: 40px 40px;
+    /*
+      Strict palette. Only four colors are used:
+        #000000  pure black       (dark background)
+        #D4AF37  gold             (dark-mode text and accents)
+        #FBF6DC  cream            (light-mode background)
+        #8C6D1F  deep gold        (light-mode text and accents; #D4AF37 is too faint on cream)
+    */
+    :root {
+      --bg: #000000;
+      --fg: #D4AF37;
+      --accent: #D4AF37;
+      --line: rgba(212, 175, 55, 0.28);
+      --line-strong: rgba(212, 175, 55, 0.6);
     }
-    .glow { box-shadow: 0 0 30px rgba(34, 211, 238, 0.15); }
-    .copy-btn.copied { color: #4ade80; }
-    /* Arabic text uses system fonts that render Arabic script well. */
-    html[lang="ar"] body { font-family: 'Segoe UI', Tahoma, 'Noto Naskh Arabic', 'Noto Sans Arabic', sans-serif; }
+    [data-theme="light"] {
+      --bg: #FBF6DC;
+      --fg: #8C6D1F;
+      --accent: #8C6D1F;
+      --line: rgba(140, 109, 31, 0.3);
+      --line-strong: rgba(140, 109, 31, 0.65);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+    html[lang="ar"] body {
+      font-family: 'Segoe UI', Tahoma, 'Noto Naskh Arabic', 'Noto Sans Arabic', sans-serif;
+    }
+    a { color: inherit; text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 96px 0; border-top: 1px solid var(--line); }
+    h1, h2, h3 { font-weight: 600; line-height: 1.2; margin: 0; }
+    h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); letter-spacing: -0.02em; }
+    h2 { font-size: clamp(1.7rem, 3.5vw, 2.4rem); letter-spacing: -0.01em; }
+    h3 { font-size: 1.1rem; }
+    p { margin: 0; }
+    .lead { font-size: 1.1rem; max-width: 620px; margin-top: 24px; opacity: 0.85; }
+    .eyebrow {
+      font-size: 0.75rem; letter-spacing: 0.25em; text-transform: uppercase;
+      margin-bottom: 20px; opacity: 0.8;
+    }
+    .section-intro { margin-top: 14px; max-width: 620px; opacity: 0.8; }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--bg); border-bottom: 1px solid var(--line);
+    }
+    .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 68px; }
+    .brand { font-weight: 600; letter-spacing: 0.02em; }
+    .nav-links { display: flex; align-items: center; gap: 22px; font-size: 0.92rem; }
+    .nav-links a.hide-sm { display: inline; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 40px; padding: 0 16px; border-radius: 6px;
+      border: 1px solid var(--accent); background: transparent; color: var(--fg);
+      font: inherit; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent); color: var(--bg); text-decoration: none; }
+    .btn-solid { background: var(--accent); color: var(--bg); }
+    .btn-solid:hover { background: transparent; color: var(--fg); }
+
+    /* Hero */
+    .hero { padding: 120px 0 110px; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 40px; }
+
+    /* Features */
+    .grid-3 {
+      display: grid; gap: 1px; margin-top: 56px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      background: var(--line); border: 1px solid var(--line);
+    }
+    .cell { background: var(--bg); padding: 32px 28px; }
+    .num { font-size: 0.8rem; letter-spacing: 0.15em; opacity: 0.7; }
+    .cell h3 { margin: 14px 0 10px; }
+    .cell p { font-size: 0.95rem; opacity: 0.85; }
+
+    /* Install */
+    .grid-2 { display: grid; gap: 24px; margin-top: 56px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+    .panel { border: 1px solid var(--line); border-radius: 10px; padding: 28px; }
+    .panel h3 { margin-bottom: 18px; }
+    .label { font-size: 0.85rem; opacity: 0.75; margin: 18px 0 8px; }
+    .code {
+      position: relative; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg);
+    }
+    .code pre {
+      margin: 0; padding: 16px 110px 16px 16px; overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.85rem; line-height: 1.5; color: var(--fg);
+    }
+    .copy {
+      position: absolute; top: 10px; inset-inline-end: 10px;
+      height: 28px; padding: 0 10px; font: inherit; font-size: 0.78rem;
+      background: transparent; color: var(--fg);
+      border: 1px solid var(--line-strong); border-radius: 5px; cursor: pointer;
+    }
+    .copy:hover { border-color: var(--accent); }
+
+    .notice {
+      margin-top: 32px; padding: 16px 20px; border-left: 2px solid var(--accent);
+      font-size: 0.95rem;
+    }
+    .notice strong { font-weight: 600; }
+    ol.steps { margin: 24px 0 0; padding-inline-start: 22px; }
+    ol.steps li { margin: 10px 0; }
+
+    /* Limits */
+    .grid-limits { display: grid; gap: 24px; margin-top: 56px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .panel ul { margin: 0; padding-inline-start: 20px; }
+    .panel li { margin: 10px 0; font-size: 0.95rem; }
+    .legal { margin-top: 40px; font-size: 0.85rem; opacity: 0.7; }
+
+    footer { border-top: 1px solid var(--line); padding: 36px 0; font-size: 0.88rem; }
+    .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+    @media (max-width: 640px) {
+      section { padding: 72px 0; }
+      .hero { padding: 80px 0; }
+      .nav-links a.hide-sm { display: none; }
+      .code pre { padding-inline-end: 16px; padding-top: 44px; }
+      .copy { top: 8px; }
+    }
+    html[lang="ar"] .copy { inset-inline-end: 10px; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-200 antialiased">
+<body>
 
-  <!-- Navigation -->
-  <header class="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-    <nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-      <a href="#top" class="flex items-center gap-2 font-semibold text-white">
-        <span class="inline-block h-2.5 w-2.5 rounded-full bg-neon shadow-[0_0_10px_#22d3ee]"></span>
-        <span data-i18n="brand">Security DNS</span>
-      </a>
-      <div class="flex items-center gap-4 text-sm">
-        <a href="#features" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navFeatures">Features</a>
-        <a href="#install" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navInstall">Install</a>
-        <a href="#limits" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navLimits">Limits</a>
-        <button id="lang-toggle" type="button"
-          class="rounded-md border border-neon/40 px-3 py-1 font-mono text-xs text-neon hover:bg-neon/10"
-          aria-label="Switch language">
-          العربية
-        </button>
-        <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener"
-          class="rounded-md bg-neon px-3 py-1.5 font-semibold text-slate-950 hover:bg-neon-dim hover:text-white"
-          data-i18n="navGithub">GitHub</a>
-      </div>
-    </nav>
+  <header>
+    <div class="wrap nav">
+      <a href="#top" class="brand" data-i18n="brand">Security DNS</a>
+      <nav class="nav-links">
+        <a href="#features" class="hide-sm" data-i18n="navFeatures">Features</a>
+        <a href="#install" class="hide-sm" data-i18n="navInstall">Install</a>
+        <a href="#limits" class="hide-sm" data-i18n="navLimits">Limits</a>
+        <button type="button" class="btn" id="theme-toggle" data-i18n="themeLight">Light</button>
+        <button type="button" class="btn" id="lang-toggle">العربية</button>
+      </nav>
+    </div>
   </header>
 
   <main id="top">
 
     <!-- Hero -->
-    <section class="grid-bg relative overflow-hidden">
-      <div class="mx-auto max-w-6xl px-4 py-20 text-center sm:py-28">
-        <p class="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-matrix" data-i18n="heroKicker">
-          Open source &middot; Linux &middot; Windows &middot; MIT
-        </p>
-        <h1 class="text-4xl font-bold leading-tight text-white sm:text-6xl" data-i18n="heroTitle">
-          Stop your ISP from reading your DNS.
-        </h1>
-        <p class="mx-auto mt-6 max-w-2xl text-lg text-slate-400" data-i18n="heroText">
-          Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically.
-          Your public IP address stays the same.
-        </p>
-        <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <a href="#install" class="glow rounded-lg bg-neon px-6 py-3 font-semibold text-slate-950 hover:bg-neon-dim hover:text-white" data-i18n="ctaInstall">
-            Install now
-          </a>
-          <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener"
-            class="rounded-lg border border-slate-700 px-6 py-3 font-semibold text-slate-200 hover:border-neon hover:text-neon" data-i18n="ctaSource">
-            View source on GitHub
-          </a>
+    <section class="hero" style="border-top:none">
+      <div class="wrap">
+        <p class="eyebrow" data-i18n="heroKicker">Open source &middot; Linux &middot; Windows &middot; MIT</p>
+        <h1 data-i18n="heroTitle">Stop your ISP from reading your DNS.</h1>
+        <p class="lead" data-i18n="heroText">Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same unless you enable the optional WARP mode.</p>
+        <div class="hero-actions">
+          <a href="#install" class="btn btn-solid" data-i18n="ctaInstall">Install now</a>
+          <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" class="btn" data-i18n="ctaSource">View source on GitHub</a>
         </div>
       </div>
     </section>
 
     <!-- Features -->
-    <section id="features" class="mx-auto max-w-6xl px-4 py-20">
-      <h2 class="text-3xl font-bold text-white" data-i18n="featTitle">How it protects you</h2>
-      <p class="mt-3 max-w-2xl text-slate-400" data-i18n="featIntro">
-        Two independent layers work together: encrypted DNS and a local proxy that defeats common DPI techniques.
-      </p>
-      <div class="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#128274;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f1Title">Encrypted DNS</h3>
-          <p class="text-sm text-slate-400" data-i18n="f1Text">DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.</p>
-        </article>
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#128737;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f2Title">DPI bypass proxy</h3>
-          <p class="text-sm text-slate-400" data-i18n="f2Text">SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.</p>
-        </article>
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#9889;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f3Title">Zero configuration</h3>
-          <p class="text-sm text-slate-400" data-i18n="f3Text">One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.</p>
-        </article>
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#8634;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f4Title">Perfect undo</h3>
-          <p class="text-sm text-slate-400" data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p>
-        </article>
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#128272;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f5Title">Leak protection</h3>
-          <p class="text-sm text-slate-400" data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p>
-        </article>
-        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <div class="mb-3 text-2xl">&#128065;</div>
-          <h3 class="mb-2 font-semibold text-white" data-i18n="f6Title">Open and auditable</h3>
-          <p class="text-sm text-slate-400" data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p>
-        </article>
+    <section id="features">
+      <div class="wrap">
+        <h2 data-i18n="featTitle">How it protects you</h2>
+        <p class="section-intro" data-i18n="featIntro">Two independent layers work together: encrypted DNS and a local proxy that defeats common DPI techniques.</p>
+        <div class="grid-3">
+          <article class="cell"><span class="num">01</span><h3 data-i18n="f1Title">Encrypted DNS</h3><p data-i18n="f1Text">DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.</p></article>
+          <article class="cell"><span class="num">02</span><h3 data-i18n="f2Title">DPI bypass proxy</h3><p data-i18n="f2Text">SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.</p></article>
+          <article class="cell"><span class="num">03</span><h3 data-i18n="f3Title">Zero configuration</h3><p data-i18n="f3Text">One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.</p></article>
+          <article class="cell"><span class="num">04</span><h3 data-i18n="f4Title">Perfect undo</h3><p data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p></article>
+          <article class="cell"><span class="num">05</span><h3 data-i18n="f5Title">Leak protection</h3><p data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p></article>
+          <article class="cell"><span class="num">06</span><h3 data-i18n="f6Title">Open and auditable</h3><p data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p></article>
+        </div>
       </div>
     </section>
 
     <!-- Install -->
-    <section id="install" class="border-y border-slate-800 bg-slate-900/40">
-      <div class="mx-auto max-w-6xl px-4 py-20">
-        <h2 class="text-3xl font-bold text-white" data-i18n="installTitle">Install in one command</h2>
-        <p class="mt-3 max-w-2xl text-slate-400" data-i18n="installIntro">
-          Run the command for your system. Windows needs an elevated (Administrator) PowerShell window.
-        </p>
+    <section id="install">
+      <div class="wrap">
+        <h2 data-i18n="installTitle">Install in one command</h2>
+        <p class="section-intro" data-i18n="installIntro">Run the command for your system. Windows needs an elevated (Administrator) PowerShell window.</p>
 
-        <div class="mt-10 grid gap-6 lg:grid-cols-2">
-          <!-- Linux -->
-          <div class="rounded-xl border border-slate-800 bg-slate-950 p-6">
-            <h3 class="mb-4 font-semibold text-white" data-i18n="linuxTitle">Linux</h3>
-            <div class="relative">
-              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-matrix"><code id="cmd-linux-install">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash</code></pre>
-              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-linux-install" data-i18n="copy">Copy</button>
+        <div class="grid-2">
+          <div class="panel">
+            <h3 data-i18n="linuxTitle">Linux</h3>
+            <div class="code">
+              <pre><code id="cmd-linux-install">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash</code></pre>
+              <button type="button" class="copy" data-copy="cmd-linux-install" data-i18n="copy">Copy</button>
             </div>
-            <p class="mt-4 text-sm text-slate-400" data-i18n="linuxUninstallLabel">Uninstall:</p>
-            <div class="relative mt-2">
-              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-slate-300"><code id="cmd-linux-uninstall">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash -s -- --uninstall</code></pre>
-              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-linux-uninstall" data-i18n="copy">Copy</button>
+            <p class="label" data-i18n="linuxUninstallLabel">Uninstall:</p>
+            <div class="code">
+              <pre><code id="cmd-linux-uninstall">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash -s -- --uninstall</code></pre>
+              <button type="button" class="copy" data-copy="cmd-linux-uninstall" data-i18n="copy">Copy</button>
             </div>
           </div>
 
-          <!-- Windows -->
-          <div class="rounded-xl border border-slate-800 bg-slate-950 p-6">
-            <h3 class="mb-4 font-semibold text-white" data-i18n="windowsTitle">Windows (Administrator PowerShell)</h3>
-            <div class="relative">
-              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-matrix"><code id="cmd-win-install">irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 | iex</code></pre>
-              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-win-install" data-i18n="copy">Copy</button>
+          <div class="panel">
+            <h3 data-i18n="windowsTitle">Windows (Administrator PowerShell)</h3>
+            <div class="code">
+              <pre><code id="cmd-win-install">irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 | iex</code></pre>
+              <button type="button" class="copy" data-copy="cmd-win-install" data-i18n="copy">Copy</button>
             </div>
-            <p class="mt-4 text-sm text-slate-400" data-i18n="windowsUninstallLabel">Uninstall (downloads the script first):</p>
-            <div class="relative mt-2">
-              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-slate-300"><code id="cmd-win-uninstall">$s = "$env:TEMP\security-dns-install.ps1"; irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 -OutFile $s; &amp; $s -Uninstall</code></pre>
-              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-win-uninstall" data-i18n="copy">Copy</button>
+            <p class="label" data-i18n="windowsUninstallLabel">Uninstall (downloads the script first):</p>
+            <div class="code">
+              <pre><code id="cmd-win-uninstall">$s = "$env:TEMP\security-dns-install.ps1"; irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 -OutFile $s; &amp; $s -Uninstall</code></pre>
+              <button type="button" class="copy" data-copy="cmd-win-uninstall" data-i18n="copy">Copy</button>
             </div>
           </div>
         </div>
 
-        <div class="mt-8 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 text-sm text-yellow-200">
+        <div class="notice">
           <strong data-i18n="reviewTitle">Review before you run.</strong>
           <span data-i18n="reviewText">Piped scripts run immediately. The source is public, so you can read install.sh and install.ps1 first.</span>
         </div>
 
-        <h3 class="mt-14 text-xl font-semibold text-white" data-i18n="afterTitle">After installing</h3>
-        <ol class="mt-4 list-decimal space-y-2 ps-6 text-slate-300">
+        <p class="section-intro" style="margin-top:20px" data-i18n="warpNote">Optional VPN-like modes (Cloudflare WARP or WireGuard) are chosen in the built-in menu. They hide destination IPs from your ISP, but they change your public IP and may change your apparent country. Read the README first.</p>
+
+        <h3 style="margin-top:56px; font-size:1.25rem" data-i18n="afterTitle">After installing</h3>
+        <ol class="steps">
           <li data-i18n="after1">Restart your browser completely.</li>
           <li data-i18n="after2">Enable ECH (Encrypted Client Hello) in your browser to hide the website name from the network.</li>
           <li data-i18n="after3">Disable QUIC / HTTP/3 in your browser so traffic cannot bypass the proxy.</li>
@@ -179,41 +253,39 @@
     </section>
 
     <!-- Limits -->
-    <section id="limits" class="mx-auto max-w-6xl px-4 py-20">
-      <h2 class="text-3xl font-bold text-white" data-i18n="limitsTitle">What is hidden, and what is not</h2>
-      <p class="mt-3 max-w-2xl text-slate-400" data-i18n="limitsIntro">
-        No local tool can make your ISP completely blind. Here is an honest summary.
-      </p>
-      <div class="mt-10 grid gap-6 md:grid-cols-2">
-        <div class="rounded-xl border border-matrix/30 bg-matrix/5 p-6">
-          <h3 class="mb-3 font-semibold text-matrix" data-i18n="hiddenTitle">Hidden</h3>
-          <ul class="list-disc space-y-2 ps-5 text-sm text-slate-300">
-            <li data-i18n="hidden1">Your DNS lookups, encrypted with DoT or DoH</li>
-            <li data-i18n="hidden2">The website name in most HTTPS connections, through handshake fragmentation</li>
-            <li data-i18n="hidden3">Website names on sites that support ECH, when ECH is enabled in your browser</li>
-          </ul>
+    <section id="limits">
+      <div class="wrap">
+        <h2 data-i18n="limitsTitle">What is hidden, and what is not</h2>
+        <p class="section-intro" data-i18n="limitsIntro">No local tool can make your ISP completely blind. Here is an honest summary.</p>
+        <div class="grid-limits">
+          <div class="panel">
+            <h3 data-i18n="hiddenTitle">Hidden</h3>
+            <ul>
+              <li data-i18n="hidden1">Your DNS lookups, encrypted with DoT or DoH</li>
+              <li data-i18n="hidden2">The website name in most HTTPS connections, through handshake fragmentation</li>
+              <li data-i18n="hidden3">Website names on sites that support ECH, when ECH is enabled in your browser</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3 data-i18n="visibleTitle">Still visible</h3>
+            <ul>
+              <li data-i18n="visible1">Destination IP addresses of the servers you connect to</li>
+              <li data-i18n="visible2">Traffic volume and timing</li>
+              <li data-i18n="visible3">QUIC / HTTP/3 traffic, unless you disable it in your browser</li>
+              <li data-i18n="visible4">Applications that ignore the system proxy settings</li>
+            </ul>
+          </div>
         </div>
-        <div class="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
-          <h3 class="mb-3 font-semibold text-red-300" data-i18n="visibleTitle">Still visible</h3>
-          <ul class="list-disc space-y-2 ps-5 text-sm text-slate-300">
-            <li data-i18n="visible1">Destination IP addresses of the servers you connect to</li>
-            <li data-i18n="visible2">Traffic volume and timing</li>
-            <li data-i18n="visible3">QUIC / HTTP/3 traffic, unless you disable it in your browser</li>
-            <li data-i18n="visible4">Applications that ignore the system proxy settings</li>
-          </ul>
-        </div>
+        <p class="legal" data-i18n="legalNote">Check the laws in your country regarding circumvention and privacy tools before you use them. This software is provided as is, without warranty.</p>
       </div>
-      <p class="mt-8 text-sm text-slate-500" data-i18n="legalNote">
-        Check the laws in your country regarding circumvention and privacy tools before you use them. This software is provided as is, without warranty.
-      </p>
     </section>
 
   </main>
 
-  <footer class="border-t border-slate-800">
-    <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-slate-500 sm:flex-row">
-      <p data-i18n="footerText">Security DNS is open source under the MIT License.</p>
-      <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" class="font-mono text-neon hover:underline" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
+  <footer>
+    <div class="wrap foot">
+      <span data-i18n="footerText">Security DNS is open source under the MIT License.</span>
+      <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
     </div>
   </footer>
 
@@ -225,10 +297,12 @@
         navFeatures: 'Features',
         navInstall: 'Install',
         navLimits: 'Limits',
-        navGithub: 'GitHub',
+        themeLight: 'Light',
+        themeDark: 'Dark',
         heroKicker: 'Open source \u00B7 Linux \u00B7 Windows \u00B7 MIT',
         heroTitle: 'Stop your ISP from reading your DNS.',
-        heroText: 'Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same.',
+        heroText: 'Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same unless you enable the optional WARP mode.',
+        warpNote: 'Optional VPN-like modes (Cloudflare WARP or WireGuard) are chosen in the built-in menu. They hide destination IPs from your ISP, but they change your public IP and may change your apparent country. Read the README first.',
         ctaInstall: 'Install now',
         ctaSource: 'View source on GitHub',
         featTitle: 'How it protects you',
@@ -252,7 +326,7 @@
         linuxUninstallLabel: 'Uninstall:',
         windowsUninstallLabel: 'Uninstall (downloads the script first):',
         copy: 'Copy',
-        copied: 'Copied!',
+        copied: 'Copied',
         reviewTitle: 'Review before you run.',
         reviewText: 'Piped scripts run immediately. The source is public, so you can read install.sh and install.ps1 first.',
         afterTitle: 'After installing',
@@ -280,10 +354,12 @@
         navFeatures: 'المميزات',
         navInstall: 'التثبيت',
         navLimits: 'الحدود',
-        navGithub: 'GitHub',
+        themeLight: 'فاتح',
+        themeDark: 'داكن',
         heroKicker: 'مفتوح المصدر \u00B7 لينكس \u00B7 ويندوز \u00B7 MIT',
         heroTitle: 'امنع مزود الإنترنت من قراءة استعلامات DNS الخاصة بك.',
-        heroText: 'يشفّر Security DNS استعلامات DNS الخاصة بك، ويشغّل وكيلاً محلياً لتجاوز فحص الحزم العميق، ويهيّئ نظامك تلقائياً. يبقى عنوان IP العام لديك كما هو.',
+        heroText: 'يشفّر Security DNS استعلامات DNS الخاصة بك، ويشغّل وكيلاً محلياً لتجاوز فحص الحزم العميق، ويهيّئ نظامك تلقائياً. يبقى عنوان IP العام لديك كما هو ما لم تفعّل وضع WARP الاختياري.',
+        warpNote: 'أوضاع اختيارية تشبه VPN (Cloudflare WARP أو WireGuard) تختارها من القائمة المدمجة. تخفي عناوين الوجهات عن مزود الإنترنت، لكنها تغيّر عنوان IP العام لديك وقد تغيّر بلدك الظاهر. اقرأ ملف README أولاً.',
         ctaInstall: 'ثبّت الآن',
         ctaSource: 'عرض الكود على GitHub',
         featTitle: 'كيف يحميك',
@@ -307,7 +383,7 @@
         linuxUninstallLabel: 'الإزالة:',
         windowsUninstallLabel: 'الإزالة (يُنزّل السكربت أولاً):',
         copy: 'نسخ',
-        copied: 'تم النسخ!',
+        copied: 'تم النسخ',
         reviewTitle: 'راجع الكود قبل التشغيل.',
         reviewText: 'السكربتات المُمرّرة عبر الأنابيب تعمل فوراً. الكود مفتوح المصدر، لذا يمكنك قراءة install.sh وinstall.ps1 أولاً.',
         afterTitle: 'بعد التثبيت',
@@ -333,24 +409,41 @@
     };
 
     let currentLang = 'en';
+    const html = document.documentElement;
 
     function applyLanguage(lang) {
       const dict = translations[lang];
       if (!dict) return;
       currentLang = lang;
-      document.documentElement.lang = lang;
-      document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
-
+      html.lang = lang;
+      html.dir = lang === 'ar' ? 'rtl' : 'ltr';
       document.querySelectorAll('[data-i18n]').forEach((el) => {
         const key = el.getAttribute('data-i18n');
-        if (dict[key] !== undefined) {
-          el.textContent = dict[key];
-        }
+        if (dict[key] !== undefined) el.textContent = dict[key];
       });
-
-      // The toggle shows the language it will switch to.
+      updateThemeLabel();
+      // The language button shows the language it switches to.
       document.getElementById('lang-toggle').textContent = lang === 'ar' ? 'English' : 'العربية';
     }
+
+    function currentTheme() {
+      return html.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    }
+
+    // The theme button shows the mode it switches to.
+    function updateThemeLabel() {
+      const dict = translations[currentLang];
+      const button = document.getElementById('theme-toggle');
+      button.textContent = currentTheme() === 'dark' ? dict.themeLight : dict.themeDark;
+      button.setAttribute('aria-label', currentTheme() === 'dark' ? dict.themeLight : dict.themeDark);
+    }
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const next = currentTheme() === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      try { localStorage.setItem('sdns-theme', next); } catch (e) { /* storage unavailable */ }
+      updateThemeLabel();
+    });
 
     document.getElementById('lang-toggle').addEventListener('click', () => {
       applyLanguage(currentLang === 'en' ? 'ar' : 'en');
@@ -366,16 +459,12 @@
       document.body.appendChild(area);
       area.select();
       let ok = false;
-      try {
-        ok = document.execCommand('copy');
-      } catch (err) {
-        ok = false;
-      }
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
       document.body.removeChild(area);
       return ok;
     }
 
-    document.querySelectorAll('.copy-btn').forEach((button) => {
+    document.querySelectorAll('.copy').forEach((button) => {
       button.addEventListener('click', async () => {
         const target = document.getElementById(button.getAttribute('data-copy'));
         if (!target) return;
@@ -388,24 +477,14 @@
           copied = fallbackCopy(text);
         }
         button.textContent = copied ? translations[currentLang].copied : translations[currentLang].copy;
-        button.classList.toggle('copied', copied);
         setTimeout(() => {
           button.textContent = translations[currentLang].copy;
-          button.classList.remove('copied');
-        }, 1800);
+        }, 1600);
       });
     });
 
-    // Smooth scrolling for in-page anchors.
-    document.querySelectorAll('a[href^="#"]').forEach((link) => {
-      link.addEventListener('click', (event) => {
-        const section = document.getElementById(link.getAttribute('href').slice(1));
-        if (section) {
-          event.preventDefault();
-          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    });
+    // Initial labels reflect the theme applied before first paint.
+    updateThemeLabel();
   </script>
 </body>
 </html>

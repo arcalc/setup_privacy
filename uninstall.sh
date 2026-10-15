@@ -4,8 +4,10 @@
 # Repository : https://github.com/arcalc/setup_privacy
 # License    : MIT
 #
-# Restores the exact files and settings captured by install.sh, then removes
-# the SpoofDPI service and binary. Safe to run more than once.
+# Stops every mode, reverts only the changes install.sh recorded (WARP,
+# WireGuard, packages, repositories, services), restores the exact files and
+# desktop settings captured before installation, and removes the application.
+# Safe to run more than once.
 #
 # Usage:
 #   sudo bash uninstall.sh
@@ -15,12 +17,23 @@ set -Eeuo pipefail
 
 readonly SERVICE_NAME="security-dns"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-readonly INSTALL_BIN="/usr/local/bin/spoofdpi"
+readonly WG_SERVICE="wg-quick@security-dns"
+readonly WG_CONF="/etc/wireguard/security-dns.conf"
+readonly WGCF_BIN="/usr/local/bin/wgcf"
+readonly SPOOF_BIN="/usr/local/bin/spoofdpi"
+readonly APP_BIN="/usr/local/bin/security-dns"
+readonly LIB_DIR="/usr/local/lib/security-dns"
+readonly DESKTOP_FILE="/usr/share/applications/security-dns.desktop"
 readonly STATE_DIR="/var/lib/security-dns"
+readonly STATE_FILE="${STATE_DIR}/state.env"
 readonly BACKUP_DIR="${STATE_DIR}/backup"
+readonly USERS_FILE="${BACKUP_DIR}/users.tsv"
 readonly RESOLVED_CONF="/etc/systemd/resolved.conf"
 readonly RESOLV_CONF="/etc/resolv.conf"
 readonly ENV_FILE="/etc/environment"
+readonly WARP_APT_LIST="/etc/apt/sources.list.d/cloudflare-client.list"
+readonly WARP_APT_KEY="/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg"
+readonly WARP_DNF_REPO="/etc/yum.repos.d/cloudflare-warp.repo"
 
 log()  { printf '\033[1;32m[+]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
@@ -33,6 +46,21 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 [[ "${EUID}" -eq 0 ]] || die "Run as root: sudo bash uninstall.sh"
+
+# Reads one value from the state file written by install.sh.
+state_value() {  # <key>
+  if [[ -f "$STATE_FILE" ]]; then
+    sed -n "s/^${1}=//p" "$STATE_FILE" | tail -n1
+  fi
+  return 0
+}
+
+detect_package_manager() {
+  if command -v apt-get >/dev/null 2>&1; then PM="apt"
+  elif command -v dnf >/dev/null 2>&1; then PM="dnf"
+  else PM=""
+  fi
+}
 
 user_gsettings() {  # <user> <gsettings arguments...>
   local user="$1"; shift
@@ -77,43 +105,123 @@ restore_gnome() {  # <user>
   log "GNOME proxy settings restored for ${user}"
 }
 
-main_uninstall() {
-  local pending=0
+stop_services() {
+  step "Stopping services"
+  systemctl disable --now "$WG_SERVICE" >/dev/null 2>&1 || true
+  systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+  log "Proxy and WireGuard services stopped"
+}
 
-  if [[ ! -d "$BACKUP_DIR" ]]; then
-    warn "No backup directory found at ${BACKUP_DIR}. Only the service and binary will be removed."
+# Reverts WARP only for the parts install.sh added.
+remove_warp() {
+  if [[ "$(state_value WARP_PKG_ADDED)" != "1" && "$(state_value WARP_REGISTERED_BY_US)" != "1" \
+        && "$(state_value WARP_REPO_ADDED)" != "1" && "$(state_value WARP_KEY_ADDED)" != "1" \
+        && "$(state_value WARP_SVC_ENABLED_BY_US)" != "1" ]]; then
+    return 0
   fi
 
-  step "Restoring proxy settings"
+  step "Reverting Cloudflare WARP"
+  if command -v warp-cli >/dev/null 2>&1; then
+    if [[ "$(state_value WARP_REGISTERED_BY_US)" == "1" ]]; then
+      warp-cli --accept-tos registration delete >/dev/null 2>&1 || warn "Could not delete the WARP registration."
+    fi
+    warp-cli --accept-tos disconnect >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$(state_value WARP_SVC_ENABLED_BY_US)" == "1" ]]; then
+    systemctl disable --now warp-svc >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$(state_value WARP_PKG_ADDED)" == "1" ]]; then
+    case "$PM" in
+      apt) DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq cloudflare-warp >/dev/null 2>&1 \
+             || warn "Could not remove the cloudflare-warp package." ;;
+      dnf) dnf remove -y -q cloudflare-warp >/dev/null 2>&1 \
+             || warn "Could not remove the cloudflare-warp package." ;;
+    esac
+  fi
+
+  if [[ "$(state_value WARP_REPO_ADDED)" == "1" ]]; then
+    rm -f "$WARP_APT_LIST" "$WARP_DNF_REPO"
+  fi
+  if [[ "$(state_value WARP_KEY_ADDED)" == "1" ]]; then
+    rm -f "$WARP_APT_KEY"
+  fi
+  log "Cloudflare WARP changes reverted"
+}
+
+# Reverts WireGuard only for the parts install.sh added.
+remove_wireguard() {
+  if [[ -f "$WG_CONF" && "$(state_value WG_CONF_ADDED)" == "1" ]]; then
+    rm -f "$WG_CONF"
+    log "Removed ${WG_CONF}"
+  fi
+
+  if [[ "$(state_value WG_TOOLS_ADDED)" == "1" ]]; then
+    case "$PM" in
+      apt) DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq wireguard-tools >/dev/null 2>&1 \
+             || warn "Could not remove wireguard-tools." ;;
+      dnf) dnf remove -y -q wireguard-tools >/dev/null 2>&1 \
+             || warn "Could not remove wireguard-tools." ;;
+    esac
+    log "Removed wireguard-tools (added by Security DNS)"
+  fi
+
+  if [[ "$(state_value WGCF_BIN_ADDED)" == "1" ]]; then
+    rm -f "$WGCF_BIN"
+    log "Removed wgcf"
+  fi
+}
+
+restore_network_settings() {
+  step "Restoring network and proxy settings"
   if [[ -d "$BACKUP_DIR" ]]; then
     restore_file "$ENV_FILE" environment
 
-    if [[ -f "${BACKUP_DIR}/users.tsv" ]]; then
+    if [[ -f "$USERS_FILE" ]]; then
       local user home
       while IFS=$'\t' read -r user home; do
         [[ -n "$user" ]] || continue
-        restore_gnome "$user" || pending=1
+        restore_gnome "$user" || PENDING=1
         restore_file "${home}/.config/kioslaverc" "kde-${user}" "${user}:"
-      done < "${BACKUP_DIR}/users.tsv"
+      done < "$USERS_FILE"
     fi
-  fi
 
-  step "Stopping and removing the service"
-  systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
-  rm -f "$SERVICE_FILE"
-  systemctl daemon-reload
-  systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
-  rm -f "$INSTALL_BIN"
-  log "Service and binary removed"
-
-  step "Restoring DNS configuration"
-  if [[ -d "$BACKUP_DIR" ]]; then
     restore_file "$RESOLVED_CONF" resolved.conf
     restore_file "$RESOLV_CONF" resolv.conf
     systemctl restart systemd-resolved 2>/dev/null || warn "Could not restart systemd-resolved."
+  else
+    warn "No backup directory found at ${BACKUP_DIR}. Network settings cannot be restored automatically."
+  fi
+}
+
+remove_files() {
+  step "Removing Security DNS files"
+  rm -f "$SERVICE_FILE" "$SPOOF_BIN"
+  systemctl daemon-reload
+  systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
+  systemctl reset-failed "$WG_SERVICE" 2>/dev/null || true
+  rm -f "$DESKTOP_FILE"
+  rm -rf "$LIB_DIR"
+  rm -f "$APP_BIN"
+  log "Service, SpoofDPI binary, menu, and desktop entry removed"
+}
+
+main() {
+  PENDING=0
+  detect_package_manager
+
+  if [[ ! -d "$STATE_DIR" ]]; then
+    warn "No Security DNS state found at ${STATE_DIR}. Removing any remaining application files."
   fi
 
-  if [[ "$pending" -eq 1 ]]; then
+  stop_services
+  remove_warp
+  remove_wireguard
+  restore_network_settings
+  remove_files
+
+  if [[ "$PENDING" -eq 1 ]]; then
     warn "Some desktop settings could not be restored yet. Backups were kept in ${STATE_DIR}."
     warn "Log in as the affected user and run: sudo bash uninstall.sh"
     return 0
@@ -124,4 +232,4 @@ main_uninstall() {
   printf '\nOpen a new terminal, or log out and back in, so environment changes take effect.\n'
 }
 
-main_uninstall
+main "$@"
