@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security DNS - Hide your DNS and bypass DPI</title>
+  <meta name="description" content="Security DNS encrypts your DNS queries and bypasses Deep Packet Inspection, so your ISP cannot easily see the websites you visit. Open source, MIT licensed." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind configuration: neon accent palette and monospace stack.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            neon: { DEFAULT: '#22d3ee', dim: '#0891b2' },
+            matrix: '#4ade80'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* Faint grid behind the hero section. */
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.06) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .glow { box-shadow: 0 0 30px rgba(34, 211, 238, 0.15); }
+    .copy-btn.copied { color: #4ade80; }
+    /* Arabic text uses system fonts that render Arabic script well. */
+    html[lang="ar"] body { font-family: 'Segoe UI', Tahoma, 'Noto Naskh Arabic', 'Noto Sans Arabic', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 antialiased">
+
+  <!-- Navigation -->
+  <header class="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
+    <nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+      <a href="#top" class="flex items-center gap-2 font-semibold text-white">
+        <span class="inline-block h-2.5 w-2.5 rounded-full bg-neon shadow-[0_0_10px_#22d3ee]"></span>
+        <span data-i18n="brand">Security DNS</span>
+      </a>
+      <div class="flex items-center gap-4 text-sm">
+        <a href="#features" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navFeatures">Features</a>
+        <a href="#install" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navInstall">Install</a>
+        <a href="#limits" class="hidden text-slate-400 hover:text-neon sm:inline" data-i18n="navLimits">Limits</a>
+        <button id="lang-toggle" type="button"
+          class="rounded-md border border-neon/40 px-3 py-1 font-mono text-xs text-neon hover:bg-neon/10"
+          aria-label="Switch language">
+          العربية
+        </button>
+        <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener"
+          class="rounded-md bg-neon px-3 py-1.5 font-semibold text-slate-950 hover:bg-neon-dim hover:text-white"
+          data-i18n="navGithub">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+
+    <!-- Hero -->
+    <section class="grid-bg relative overflow-hidden">
+      <div class="mx-auto max-w-6xl px-4 py-20 text-center sm:py-28">
+        <p class="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-matrix" data-i18n="heroKicker">
+          Open source &middot; Linux &middot; Windows &middot; MIT
+        </p>
+        <h1 class="text-4xl font-bold leading-tight text-white sm:text-6xl" data-i18n="heroTitle">
+          Stop your ISP from reading your DNS.
+        </h1>
+        <p class="mx-auto mt-6 max-w-2xl text-lg text-slate-400" data-i18n="heroText">
+          Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically.
+          Your public IP address stays the same.
+        </p>
+        <div class="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <a href="#install" class="glow rounded-lg bg-neon px-6 py-3 font-semibold text-slate-950 hover:bg-neon-dim hover:text-white" data-i18n="ctaInstall">
+            Install now
+          </a>
+          <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener"
+            class="rounded-lg border border-slate-700 px-6 py-3 font-semibold text-slate-200 hover:border-neon hover:text-neon" data-i18n="ctaSource">
+            View source on GitHub
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="mx-auto max-w-6xl px-4 py-20">
+      <h2 class="text-3xl font-bold text-white" data-i18n="featTitle">How it protects you</h2>
+      <p class="mt-3 max-w-2xl text-slate-400" data-i18n="featIntro">
+        Two independent layers work together: encrypted DNS and a local proxy that defeats common DPI techniques.
+      </p>
+      <div class="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#128274;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f1Title">Encrypted DNS</h3>
+          <p class="text-sm text-slate-400" data-i18n="f1Text">DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.</p>
+        </article>
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#128737;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f2Title">DPI bypass proxy</h3>
+          <p class="text-sm text-slate-400" data-i18n="f2Text">SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.</p>
+        </article>
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#9889;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f3Title">Zero configuration</h3>
+          <p class="text-sm text-slate-400" data-i18n="f3Text">One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.</p>
+        </article>
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#8634;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f4Title">Perfect undo</h3>
+          <p class="text-sm text-slate-400" data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p>
+        </article>
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#128272;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f5Title">Leak protection</h3>
+          <p class="text-sm text-slate-400" data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p>
+        </article>
+        <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+          <div class="mb-3 text-2xl">&#128065;</div>
+          <h3 class="mb-2 font-semibold text-white" data-i18n="f6Title">Open and auditable</h3>
+          <p class="text-sm text-slate-400" data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section id="install" class="border-y border-slate-800 bg-slate-900/40">
+      <div class="mx-auto max-w-6xl px-4 py-20">
+        <h2 class="text-3xl font-bold text-white" data-i18n="installTitle">Install in one command</h2>
+        <p class="mt-3 max-w-2xl text-slate-400" data-i18n="installIntro">
+          Run the command for your system. Windows needs an elevated (Administrator) PowerShell window.
+        </p>
+
+        <div class="mt-10 grid gap-6 lg:grid-cols-2">
+          <!-- Linux -->
+          <div class="rounded-xl border border-slate-800 bg-slate-950 p-6">
+            <h3 class="mb-4 font-semibold text-white" data-i18n="linuxTitle">Linux</h3>
+            <div class="relative">
+              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-matrix"><code id="cmd-linux-install">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash</code></pre>
+              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-linux-install" data-i18n="copy">Copy</button>
+            </div>
+            <p class="mt-4 text-sm text-slate-400" data-i18n="linuxUninstallLabel">Uninstall:</p>
+            <div class="relative mt-2">
+              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-slate-300"><code id="cmd-linux-uninstall">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash -s -- --uninstall</code></pre>
+              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-linux-uninstall" data-i18n="copy">Copy</button>
+            </div>
+          </div>
+
+          <!-- Windows -->
+          <div class="rounded-xl border border-slate-800 bg-slate-950 p-6">
+            <h3 class="mb-4 font-semibold text-white" data-i18n="windowsTitle">Windows (Administrator PowerShell)</h3>
+            <div class="relative">
+              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-matrix"><code id="cmd-win-install">irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 | iex</code></pre>
+              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-win-install" data-i18n="copy">Copy</button>
+            </div>
+            <p class="mt-4 text-sm text-slate-400" data-i18n="windowsUninstallLabel">Uninstall (downloads the script first):</p>
+            <div class="relative mt-2">
+              <pre class="overflow-x-auto rounded-lg bg-black p-4 pe-20 font-mono text-sm text-slate-300"><code id="cmd-win-uninstall">$s = "$env:TEMP\security-dns-install.ps1"; irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 -OutFile $s; &amp; $s -Uninstall</code></pre>
+              <button type="button" class="copy-btn absolute end-2 top-2 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-neon hover:text-neon" data-copy="cmd-win-uninstall" data-i18n="copy">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-8 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 text-sm text-yellow-200">
+          <strong data-i18n="reviewTitle">Review before you run.</strong>
+          <span data-i18n="reviewText">Piped scripts run immediately. The source is public, so you can read install.sh and install.ps1 first.</span>
+        </div>
+
+        <h3 class="mt-14 text-xl font-semibold text-white" data-i18n="afterTitle">After installing</h3>
+        <ol class="mt-4 list-decimal space-y-2 ps-6 text-slate-300">
+          <li data-i18n="after1">Restart your browser completely.</li>
+          <li data-i18n="after2">Enable ECH (Encrypted Client Hello) in your browser to hide the website name from the network.</li>
+          <li data-i18n="after3">Disable QUIC / HTTP/3 in your browser so traffic cannot bypass the proxy.</li>
+          <li data-i18n="after4">Read the README for manual steps on uncommon desktops.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Limits -->
+    <section id="limits" class="mx-auto max-w-6xl px-4 py-20">
+      <h2 class="text-3xl font-bold text-white" data-i18n="limitsTitle">What is hidden, and what is not</h2>
+      <p class="mt-3 max-w-2xl text-slate-400" data-i18n="limitsIntro">
+        No local tool can make your ISP completely blind. Here is an honest summary.
+      </p>
+      <div class="mt-10 grid gap-6 md:grid-cols-2">
+        <div class="rounded-xl border border-matrix/30 bg-matrix/5 p-6">
+          <h3 class="mb-3 font-semibold text-matrix" data-i18n="hiddenTitle">Hidden</h3>
+          <ul class="list-disc space-y-2 ps-5 text-sm text-slate-300">
+            <li data-i18n="hidden1">Your DNS lookups, encrypted with DoT or DoH</li>
+            <li data-i18n="hidden2">The website name in most HTTPS connections, through handshake fragmentation</li>
+            <li data-i18n="hidden3">Website names on sites that support ECH, when ECH is enabled in your browser</li>
+          </ul>
+        </div>
+        <div class="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
+          <h3 class="mb-3 font-semibold text-red-300" data-i18n="visibleTitle">Still visible</h3>
+          <ul class="list-disc space-y-2 ps-5 text-sm text-slate-300">
+            <li data-i18n="visible1">Destination IP addresses of the servers you connect to</li>
+            <li data-i18n="visible2">Traffic volume and timing</li>
+            <li data-i18n="visible3">QUIC / HTTP/3 traffic, unless you disable it in your browser</li>
+            <li data-i18n="visible4">Applications that ignore the system proxy settings</li>
+          </ul>
+        </div>
+      </div>
+      <p class="mt-8 text-sm text-slate-500" data-i18n="legalNote">
+        Check the laws in your country regarding circumvention and privacy tools before you use them. This software is provided as is, without warranty.
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="border-t border-slate-800">
+    <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-slate-500 sm:flex-row">
+      <p data-i18n="footerText">Security DNS is open source under the MIT License.</p>
+      <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" class="font-mono text-neon hover:underline" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
+    </div>
+  </footer>
+
+  <script>
+    // User-facing UI text only. Code comments and identifiers stay in English.
+    const translations = {
+      en: {
+        brand: 'Security DNS',
+        navFeatures: 'Features',
+        navInstall: 'Install',
+        navLimits: 'Limits',
+        navGithub: 'GitHub',
+        heroKicker: 'Open source \u00B7 Linux \u00B7 Windows \u00B7 MIT',
+        heroTitle: 'Stop your ISP from reading your DNS.',
+        heroText: 'Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same.',
+        ctaInstall: 'Install now',
+        ctaSource: 'View source on GitHub',
+        featTitle: 'How it protects you',
+        featIntro: 'Two independent layers work together: encrypted DNS and a local proxy that defeats common DPI techniques.',
+        f1Title: 'Encrypted DNS',
+        f1Text: 'DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.',
+        f2Title: 'DPI bypass proxy',
+        f2Text: 'SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.',
+        f3Title: 'Zero configuration',
+        f3Text: 'One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.',
+        f4Title: 'Perfect undo',
+        f4Text: 'Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.',
+        f5Title: 'Leak protection',
+        f5Text: 'Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.',
+        f6Title: 'Open and auditable',
+        f6Text: 'Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.',
+        installTitle: 'Install in one command',
+        installIntro: 'Run the command for your system. Windows needs an elevated (Administrator) PowerShell window.',
+        linuxTitle: 'Linux',
+        windowsTitle: 'Windows (Administrator PowerShell)',
+        linuxUninstallLabel: 'Uninstall:',
+        windowsUninstallLabel: 'Uninstall (downloads the script first):',
+        copy: 'Copy',
+        copied: 'Copied!',
+        reviewTitle: 'Review before you run.',
+        reviewText: 'Piped scripts run immediately. The source is public, so you can read install.sh and install.ps1 first.',
+        afterTitle: 'After installing',
+        after1: 'Restart your browser completely.',
+        after2: 'Enable ECH (Encrypted Client Hello) in your browser to hide the website name from the network.',
+        after3: 'Disable QUIC / HTTP/3 in your browser so traffic cannot bypass the proxy.',
+        after4: 'Read the README for manual steps on uncommon desktops.',
+        limitsTitle: 'What is hidden, and what is not',
+        limitsIntro: 'No local tool can make your ISP completely blind. Here is an honest summary.',
+        hiddenTitle: 'Hidden',
+        hidden1: 'Your DNS lookups, encrypted with DoT or DoH',
+        hidden2: 'The website name in most HTTPS connections, through handshake fragmentation',
+        hidden3: 'Website names on sites that support ECH, when ECH is enabled in your browser',
+        visibleTitle: 'Still visible',
+        visible1: 'Destination IP addresses of the servers you connect to',
+        visible2: 'Traffic volume and timing',
+        visible3: 'QUIC / HTTP/3 traffic, unless you disable it in your browser',
+        visible4: 'Applications that ignore the system proxy settings',
+        legalNote: 'Check the laws in your country regarding circumvention and privacy tools before you use them. This software is provided as is, without warranty.',
+        footerText: 'Security DNS is open source under the MIT License.',
+        footerLink: 'github.com/arcalc/setup_privacy'
+      },
+      ar: {
+        brand: 'Security DNS',
+        navFeatures: 'المميزات',
+        navInstall: 'التثبيت',
+        navLimits: 'الحدود',
+        navGithub: 'GitHub',
+        heroKicker: 'مفتوح المصدر \u00B7 لينكس \u00B7 ويندوز \u00B7 MIT',
+        heroTitle: 'امنع مزود الإنترنت من قراءة استعلامات DNS الخاصة بك.',
+        heroText: 'يشفّر Security DNS استعلامات DNS الخاصة بك، ويشغّل وكيلاً محلياً لتجاوز فحص الحزم العميق، ويهيّئ نظامك تلقائياً. يبقى عنوان IP العام لديك كما هو.',
+        ctaInstall: 'ثبّت الآن',
+        ctaSource: 'عرض الكود على GitHub',
+        featTitle: 'كيف يحميك',
+        featIntro: 'تعمل طبقتان مستقلتان معاً: تشفير DNS، ووكيل محلي يتجاوز تقنيات الفحص الشائعة.',
+        f1Title: 'تشفير DNS',
+        f1Text: 'DNS عبر TLS على لينكس وDNS عبر HTTPS على ويندوز، كلاهما عبر Cloudflare 1.1.1.1. لا تُرسل الاستعلامات أبداً كنص غير مشفّر.',
+        f2Title: 'وكيل تجاوز فحص الحزم',
+        f2Text: 'يعمل SpoofDPI محلياً ويقسّم مصافحة TLS حتى لا تتمكن أجهزة الفحص من قراءة اسم الموقع من حزمة واحدة.',
+        f3Title: 'بدون إعداد',
+        f3Text: 'أمر واحد يهيّئ الوكيل وإعدادات DNS وإعدادات وكيل النظام. يتم جلب أحدث إصدار من SpoofDPI تلقائياً.',
+        f4Title: 'تراجع كامل',
+        f4Text: 'يتم نسخ كل إعداد يتم تغييره احتياطياً أولاً. يستعيد برنامج الإزالة الحالة السابقة بدقة، ملفاً بملف.',
+        f5Title: 'منع التسرّب',
+        f5Text: 'تم تعطيل الرجوع إلى النص غير المشفّر. يوجّه لينكس كل الاستعلامات عبر المحلل المشفّر، ويعطّل ويندوز الرجوع إلى UDP.',
+        f6Title: 'مفتوح وقابل للتدقيق',
+        f6Text: 'سكربتات بسيطة لـ shell وPowerShell دون ملفات ثنائية مغلقة منا. تُتحقق التنزيلات من المجموع الاختباري عند نشره.',
+        installTitle: 'ثبّت بأمر واحد',
+        installIntro: 'شغّل الأمر الخاص بنظامك. يحتاج ويندوز إلى نافذة PowerShell بصلاحيات المسؤول.',
+        linuxTitle: 'لينكس',
+        windowsTitle: 'ويندوز (PowerShell بصلاحيات المسؤول)',
+        linuxUninstallLabel: 'الإزالة:',
+        windowsUninstallLabel: 'الإزالة (يُنزّل السكربت أولاً):',
+        copy: 'نسخ',
+        copied: 'تم النسخ!',
+        reviewTitle: 'راجع الكود قبل التشغيل.',
+        reviewText: 'السكربتات المُمرّرة عبر الأنابيب تعمل فوراً. الكود مفتوح المصدر، لذا يمكنك قراءة install.sh وinstall.ps1 أولاً.',
+        afterTitle: 'بعد التثبيت',
+        after1: 'أعد تشغيل متصفحك بالكامل.',
+        after2: 'فعّل ECH (Encrypted Client Hello) في متصفحك لإخفاء اسم الموقع عن الشبكة.',
+        after3: 'عطّل QUIC / HTTP/3 في متصفحك حتى لا تتجاوز الحركة الوكيل.',
+        after4: 'اقرأ ملف README للخطوات اليدوية على أجهزة سطح المكتب غير الشائعة.',
+        limitsTitle: 'ما المخفي وما غير المخفي',
+        limitsIntro: 'لا توجد أداة محلية تجعل مزود الإنترنت أعمى تماماً. إليك ملخصاً صريحاً.',
+        hiddenTitle: 'مخفي',
+        hidden1: 'استعلامات DNS الخاصة بك، مشفّرة عبر DoT أو DoH',
+        hidden2: 'اسم الموقع في معظم اتصالات HTTPS، عبر تقسيم المصافحة',
+        hidden3: 'أسماء المواقع في المواقع التي تدعم ECH، عند تفعيله في متصفحك',
+        visibleTitle: 'ما زال مرئياً',
+        visible1: 'عناوين IP للخوادم التي تتصل بها',
+        visible2: 'حجم الحركة وتوقيتها',
+        visible3: 'حركة QUIC / HTTP/3 ما لم تعطّلها في متصفحك',
+        visible4: 'التطبيقات التي تتجاهل إعدادات وكيل النظام',
+        legalNote: 'تحقق من القوانين في بلدك المتعلقة بأدوات التحايل والخصوصية قبل استخدامها. البرنامج مُقدَّم كما هو دون أي ضمان.',
+        footerText: 'Security DNS مفتوح المصدر بموجب رخصة MIT.',
+        footerLink: 'github.com/arcalc/setup_privacy'
+      }
+    };
+
+    let currentLang = 'en';
+
+    function applyLanguage(lang) {
+      const dict = translations[lang];
+      if (!dict) return;
+      currentLang = lang;
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+
+      document.querySelectorAll('[data-i18n]').forEach((el) => {
+        const key = el.getAttribute('data-i18n');
+        if (dict[key] !== undefined) {
+          el.textContent = dict[key];
+        }
+      });
+
+      // The toggle shows the language it will switch to.
+      document.getElementById('lang-toggle').textContent = lang === 'ar' ? 'English' : 'العربية';
+    }
+
+    document.getElementById('lang-toggle').addEventListener('click', () => {
+      applyLanguage(currentLang === 'en' ? 'ar' : 'en');
+    });
+
+    // Fallback copy for contexts where the async Clipboard API is unavailable.
+    function fallbackCopy(text) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'absolute';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (err) {
+        ok = false;
+      }
+      document.body.removeChild(area);
+      return ok;
+    }
+
+    document.querySelectorAll('.copy-btn').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const target = document.getElementById(button.getAttribute('data-copy'));
+        if (!target) return;
+        const text = target.textContent.trim();
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch (err) {
+          copied = fallbackCopy(text);
+        }
+        button.textContent = copied ? translations[currentLang].copied : translations[currentLang].copy;
+        button.classList.toggle('copied', copied);
+        setTimeout(() => {
+          button.textContent = translations[currentLang].copy;
+          button.classList.remove('copied');
+        }, 1800);
+      });
+    });
+
+    // Smooth scrolling for in-page anchors.
+    document.querySelectorAll('a[href^="#"]').forEach((link) => {
+      link.addEventListener('click', (event) => {
+        const section = document.getElementById(link.getAttribute('href').slice(1));
+        if (section) {
+          event.preventDefault();
+          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
