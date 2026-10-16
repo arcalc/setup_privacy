@@ -24,7 +24,7 @@
 
 set -Eeuo pipefail
 
-readonly SCRIPT_VERSION="2.1.0"
+readonly SCRIPT_VERSION="2.1.1"
 readonly REPO_RAW="https://raw.githubusercontent.com/arcalc/setup_privacy/main"
 readonly SPOOFDPI_REPO="xvzc/SpoofDPI"
 readonly WGCF_REPO="ViRb3/wgcf"
@@ -103,6 +103,13 @@ declare -A MSG_EN=(
   [done_menu]="Open the menu any time with: sudo security-dns"
   [done_next]="Log out and back in, restart your browsers, then enable ECH and disable QUIC (see README.md)."
   [pressed]="Press Enter to return to the menu."
+  [port_busy]="Port %s is already in use by another application. Choosing another port."
+  [port_switched]="SpoofDPI will use port %s."
+  [no_port]="Neither port 8080 nor 8081 is free."
+  [preflight_ok]="SpoofDPI started correctly in a test run."
+  [preflight_fail]="SpoofDPI exited during the test run (exit code %s). Its output is shown below."
+  [start_fail]="SpoofDPI did not start and listen on its port. The service log is shown below."
+  [start_ok]="SpoofDPI is listening on 127.0.0.1:%s."
 )
 
 declare -A MSG_AR=(
@@ -137,6 +144,13 @@ declare -A MSG_AR=(
   [done_menu]="افتح القائمة في أي وقت بالأمر: sudo security-dns"
   [done_next]="سجّل الخروج ثم الدخول مجدداً، وأعد تشغيل المتصفح، ثم فعّل ECH وعطّل QUIC (راجع README.md)."
   [pressed]="اضغط Enter للعودة إلى القائمة."
+  [port_busy]="المنفذ %s مستخدم بالفعل من تطبيق آخر. سيتم اختيار منفذ آخر."
+  [port_switched]="سيستخدم SpoofDPI المنفذ %s."
+  [no_port]="لا يوجد أي من المنفذين 8080 أو 8081 متاح."
+  [preflight_ok]="بدأ SpoofDPI بنجاح في الاختبار الأولي."
+  [preflight_fail]="أُغلق SpoofDPI أثناء الاختبار الأولي (رمز الخروج %s). المخرجات موضحة أدناه."
+  [start_fail]="لم يبدأ SpoofDPI ولم يستمع على منفذه. سجل الخدمة موضح أدناه."
+  [start_ok]="SpoofDPI يستمع الآن على 127.0.0.1:%s."
 )
 
 # msg <key> [printf arguments...]: prints the text in the selected language.
@@ -450,7 +464,7 @@ install_spoofdpi() {
     *.tar.gz|*.tgz)
       mkdir -p "${TMP_DIR}/extract"
       tar -xzf "$file" -C "${TMP_DIR}/extract"
-      bin="$(find "${TMP_DIR}/extract" -type f -name 'spoofdpi' | head -n1 || true)"
+      bin="$(find "${TMP_DIR}/extract" -type f \( -name 'spoofdpi' -o -name 'spoof-dpi' \) | head -n1 || true)"
       ;;
     *)
       bin="$file"
@@ -477,7 +491,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${SPOOF_BIN} --addr 127.0.0.1 --port ${port} ${SPOOFDPI_EXTRA_FLAGS}
+ExecStart=${SPOOF_BIN} $(build_spoofdpi_args "$port")
 Restart=on-failure
 RestartSec=5
 DynamicUser=yes
@@ -739,6 +753,79 @@ ensure_wireguard_profile() {
 # Mode switching. Modes are exclusive: every switch stops all routing first,
 # then starts only the chosen mode.
 # -----------------------------------------------------------------------------
+# Builds SpoofDPI's command-line arguments. Optional flags are added only when
+# the installed binary advertises them, so an unknown flag cannot stop startup.
+build_spoofdpi_args() {  # <port>
+  local port="$1" help args
+  args="--addr 127.0.0.1 --port ${port}"
+  help="$("$SPOOF_BIN" --help 2>&1 || true)"
+  if grep -q -- '-system-proxy' <<< "$help"; then
+    args="${args} --system-proxy=false"
+  fi
+  if [[ -n "$SPOOFDPI_EXTRA_FLAGS" ]]; then
+    args="${args} ${SPOOFDPI_EXTRA_FLAGS}"
+  fi
+  printf '%s' "$args"
+}
+
+# Makes sure the configured port is free before SpoofDPI starts. Stopping the
+# service happens earlier in the mode switch, so a listener found here belongs
+# to another application. In that case a free port is chosen and saved.
+ensure_port_free() {
+  local port new
+  port="$(state_get PORT)"
+  if port_in_use "$port"; then
+    warn "$(msg port_busy "$port")"
+    new="$(select_port)" || die "$(msg no_port)"
+    state_set PORT "$new"
+    log "$(msg port_switched "$new")"
+  fi
+  return 0
+}
+
+# Runs SpoofDPI in the foreground for a few seconds. If it exits early, its
+# output is printed so the reason is visible. Exit code 124 means it was still
+# running when the timeout ended, which is the healthy case.
+preflight_spoofdpi() {  # <port>
+  local port="$1" log_file rc=0
+  local -a argv=()
+  log_file="$(mktemp)"
+  read -ra argv <<< "$(build_spoofdpi_args "$port")"
+  timeout 4 "$SPOOF_BIN" "${argv[@]}" >"$log_file" 2>&1 || rc=$?
+
+  if [[ "$rc" -eq 124 ]]; then
+    rm -f "$log_file"
+    log "$(msg preflight_ok)"
+    return 0
+  fi
+
+  warn "$(msg preflight_fail "$rc")"
+  sed 's/^/    /' "$log_file" >&2 || true
+  rm -f "$log_file"
+  return 1
+}
+
+# Starts the systemd service and waits for the port to open, retrying for up to
+# about 15 seconds. On failure, the last service log lines are printed.
+start_and_verify() {  # <port>
+  local port="$1" attempt
+  systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
+  systemctl restart "$SERVICE_NAME" || true
+  sleep 2
+
+  for attempt in $(seq 1 15); do
+    if port_in_use "$port" && systemctl is-active --quiet "$SERVICE_NAME"; then
+      log "$(msg start_ok "$port")"
+      return 0
+    fi
+    sleep 1
+  done
+
+  warn "$(msg start_fail)"
+  journalctl -u "$SERVICE_NAME" -n 40 --no-pager 2>&1 | sed 's/^/    /' >&2 || true
+  return 1
+}
+
 stop_routing() {
   systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
   systemctl disable --now "$WG_SERVICE" >/dev/null 2>&1 || true
@@ -752,12 +839,11 @@ apply_mode() {  # <1|2|3|0>
     1)
       install_spoofdpi
       stop_routing
-      write_service
+      ensure_port_free
       port="$(state_get PORT)"
-      systemctl enable --now "$SERVICE_NAME" >/dev/null 2>&1 \
-        || die "SpoofDPI service failed to start. Check: journalctl -u ${SERVICE_NAME} -n 50"
-      sleep 2
-      port_in_use "$port" || die "SpoofDPI is not listening on 127.0.0.1:${port}."
+      write_service
+      preflight_spoofdpi "$port" || die "$(msg start_fail)"
+      start_and_verify "$port" || die "$(msg start_fail)"
       set_system_proxy "$port"
       ;;
     2)
