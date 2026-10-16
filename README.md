@@ -147,7 +147,7 @@ The first run:
 ## Using the Menu
 
 ```text
-  Security DNS v2.1.0  |  current mode: 1
+  Security DNS v2.2.0  |  current mode: 1
 
   1) SpoofDPI bypass        keeps your public IP
   2) Cloudflare WARP        hides destination IPs; changes public IP
@@ -156,7 +156,8 @@ The first run:
   4) Status
   5) Install missing dependencies
   6) Check for updates
-  7) Uninstall and restore original settings
+  7) Restore original settings (keep app and dependencies)
+  8) Uninstall completely
   q) Quit
 ```
 
@@ -167,7 +168,8 @@ The menu appears in the language you chose at startup. Pick a number and press E
 - **4** prints the current mode, the state of the proxy, WireGuard, and WARP, and the DNS status.
 - **5** installs any missing dependencies: base tools, `wireguard-tools`, `wgcf`, and the Cloudflare WARP client. It does not register WARP or connect it. That happens only when you choose mode 2.
 - **6** checks for updates (see [Updates](#updates)).
-- **7** restores the original settings and removes the application after you confirm.
+- **7** restores your original network, DNS, and proxy settings from the backups and stops all tunnels. The application, dependencies, shortcuts, and backups stay installed. Use it when you want the system back to its original state without losing the tools. Modes 0 to 3 turn encrypted DNS back on when you select them.
+- **8** uninstalls everything after you confirm.
 
 Every mode switch stops all routing first, then starts only the chosen mode. Packages and tools that were already on the system are left in place when you uninstall.
 
@@ -237,7 +239,7 @@ To check your apparent location and IP address, open an IP geolocation site in a
 
 ## Uninstalling
 
-Choose **7** in the menu, or run:
+Choose **8** in the menu for a full uninstall. To restore the original settings only, choose **7** in the menu, or run `sudo bash /usr/local/lib/security-dns/uninstall.sh --restore-only` (Windows: `.\uninstall.ps1 -RestoreOnly`). For a full uninstall, run:
 
 ```bash
 sudo bash /usr/local/lib/security-dns/uninstall.sh          # Linux

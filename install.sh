@@ -24,7 +24,7 @@
 
 set -Eeuo pipefail
 
-readonly SCRIPT_VERSION="2.1.1"
+readonly SCRIPT_VERSION="2.2.0"
 readonly REPO_RAW="https://raw.githubusercontent.com/arcalc/setup_privacy/main"
 readonly SPOOFDPI_REPO="xvzc/SpoofDPI"
 readonly WGCF_REPO="ViRb3/wgcf"
@@ -84,7 +84,11 @@ declare -A MSG_EN=(
   [menu_4]="4) Status"
   [menu_5]="5) Install missing dependencies"
   [menu_6]="6) Check for updates"
-  [menu_7]="7) Uninstall and restore original settings"
+  [menu_7]="7) Restore original settings (keep app and dependencies)"
+  [menu_8]="8) Uninstall completely"
+  [restore_q]="Restore your original network, DNS, and proxy settings and stop all tunnels? The app, dependencies, and shortcuts stay installed."
+  [restore_done]="Original settings restored. The app and dependencies are still installed."
+  [restore_fail]="Restore did not complete. Check the messages above."
   [menu_q]="q) Quit"
   [choose]="Choose an option: "
   [bad_choice]="Unknown option. Choose a number from the list."
@@ -125,7 +129,11 @@ declare -A MSG_AR=(
   [menu_4]="4) الحالة"
   [menu_5]="5) تثبيت التبعيات الناقصة"
   [menu_6]="6) التحقق من التحديثات"
-  [menu_7]="7) إلغاء التثبيت واستعادة الإعدادات الأصلية"
+  [menu_7]="7) استعادة الإعدادات الأصلية (مع إبقاء التطبيق والتبعيات)"
+  [menu_8]="8) إلغاء التثبيت بالكامل"
+  [restore_q]="هل تريد استعادة إعدادات الشبكة والـDNS والوكيل الأصلية وإيقاف جميع الأنفاق؟ سيبقى التطبيق والتبعيات والاختصارات مثبتة."
+  [restore_done]="تمت استعادة الإعدادات الأصلية. ما زال التطبيق والتبعيات مثبتة."
+  [restore_fail]="لم تكتمل عملية الاستعادة. راجع الرسائل أعلاه."
   [menu_q]="q) خروج"
   [choose]="اختر رقم الخيار: "
   [bad_choice]="خيار غير معروف. اختر رقماً من القائمة."
@@ -833,8 +841,18 @@ stop_routing() {
   set_system_proxy ""
 }
 
+# Turns encrypted DNS back on if a restore has removed it. The marker written by
+# configure_dot shows whether the managed configuration is still in place.
+ensure_encrypted_dns() {
+  if grep -q 'Managed by Security DNS' "$RESOLVED_CONF" 2>/dev/null; then
+    return 0
+  fi
+  configure_dot
+}
+
 apply_mode() {  # <1|2|3|0>
   local mode="$1" port
+  ensure_encrypted_dns
   case "$mode" in
     1)
       install_spoofdpi
@@ -1077,7 +1095,7 @@ print_menu() {
   printf "$(msg menu_head "$SCRIPT_VERSION" "$mode")"
   printf '\n\n'
   printf '  %s\n' "$(msg menu_1)" "$(msg menu_2)" "$(msg menu_3)" "$(msg menu_0)" \
-    "$(msg menu_4)" "$(msg menu_5)" "$(msg menu_6)" "$(msg menu_7)" "$(msg menu_q)"
+    "$(msg menu_4)" "$(msg menu_5)" "$(msg menu_6)" "$(msg menu_7)" "$(msg menu_8)" "$(msg menu_q)"
   printf '\n'
 }
 
@@ -1096,7 +1114,8 @@ run_menu() {
       4) show_status ;;
       5) install_missing_dependencies || warn "Dependency installation stopped; see messages above." ;;
       6) check_updates ;;
-      7)
+      7) run_restore_original ;;
+      8)
         if confirm "$(msg uninst_q)"; then
           run_uninstaller
         fi
@@ -1105,6 +1124,20 @@ run_menu() {
       *) warn "$(msg bad_choice)" ;;
     esac
   done
+}
+
+run_restore_original() {
+  if [[ ! -f "$UNINSTALL_PATH" ]]; then
+    warn "$(msg restore_fail)"
+    return 0
+  fi
+  if confirm "$(msg restore_q)"; then
+    if bash "$UNINSTALL_PATH" --restore-only; then
+      log "$(msg restore_done)"
+    else
+      warn "$(msg restore_fail)"
+    fi
+  fi
 }
 
 run_uninstaller() {

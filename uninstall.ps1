@@ -4,16 +4,27 @@
     Security DNS - Windows uninstaller.
 
 .DESCRIPTION
-    Stops every mode, reverts only the changes install.ps1 recorded (WARP and
-    WireGuard clients and tunnels, shortcuts, startup launcher), restores the
-    exact DNS, DNS-over-HTTPS, and proxy settings captured before installation,
-    and removes the application folder.
+    Two modes:
+      -RestoreOnly  Reverts DNS, DNS-over-HTTPS, proxy, and startup settings to the
+                    original backups and stops all tunnels. The application, the
+                    dependencies, the shortcuts, and the backups stay in place.
+      (default)     Full uninstall. Reverts the same settings, removes WARP and
+                    WireGuard only if install.ps1 installed them, removes the
+                    shortcuts, and deletes the application folder.
+
+.PARAMETER RestoreOnly
+    Restore original settings without uninstalling.
 
 .EXAMPLE
     .\uninstall.ps1
+
+.EXAMPLE
+    .\uninstall.ps1 -RestoreOnly
 #>
 [CmdletBinding()]
-param()
+param(
+    [switch]$RestoreOnly
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -66,6 +77,15 @@ function Get-StateValue([string]$Key) {
     return $null
 }
 
+function Set-StateValue([string]$Key, $Value) {
+    New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
+    $state = Read-State
+    $table = [ordered]@{}
+    foreach ($prop in $state.PSObject.Properties) { $table[$prop.Name] = $prop.Value }
+    $table[$Key] = $Value
+    $table | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+}
+
 function Update-WinInet {
     if (-not ('SecurityDns.WinInet' -as [type])) {
         Add-Type -Namespace SecurityDns -Name WinInet -MemberDefinition @'
@@ -96,51 +116,7 @@ function Stop-AllRouting {
 }
 
 # -----------------------------------------------------------------------------
-# Remove only what install.ps1 added
-# -----------------------------------------------------------------------------
-function Remove-MsiProduct([string]$ProductCode, [string]$Label) {
-    if (-not $ProductCode) {
-        Write-Caution "$Label product code not recorded; remove it from Apps & features if you no longer need it."
-        return
-    }
-    $proc = Start-Process -FilePath 'msiexec.exe' `
-        -ArgumentList @('/x', $ProductCode, '/qn', '/norestart') -Wait -PassThru
-    if ($proc.ExitCode -in 0, 3010) {
-        Write-Good "$Label removed"
-    } else {
-        Write-Caution "Could not remove $Label (exit code $($proc.ExitCode)). Remove it from Apps & features."
-    }
-}
-
-function Remove-WarpArtifacts {
-    if (Test-Path -LiteralPath $WarpCli) {
-        if (Get-StateValue 'WARP_REGISTERED_BY_US') {
-            & $WarpCli --accept-tos registration delete *> $null
-        }
-    }
-    if (Get-StateValue 'WARP_MSI_ADDED') {
-        Remove-MsiProduct -ProductCode (Get-StateValue 'WARP_PRODUCT_CODE') -Label 'Cloudflare WARP client'
-    } else {
-        Write-Good 'Cloudflare WARP was not installed by Security DNS; the client was left in place'
-    }
-}
-
-function Remove-WireGuardArtifacts {
-    if (Get-StateValue 'WG_CLIENT_ADDED') {
-        Remove-MsiProduct -ProductCode (Get-StateValue 'WG_PRODUCT_CODE') -Label 'WireGuard client'
-    }
-}
-
-function Remove-Shortcuts {
-    $shortcuts = Get-StateValue 'SHORTCUTS'
-    foreach ($path in @($shortcuts)) {
-        if ($path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
-    }
-    if ($shortcuts) { Write-Good 'Start Menu and Desktop shortcuts removed' }
-}
-
-# -----------------------------------------------------------------------------
-# Restore the exact original settings from the pre-install backup
+# Restore functions (exact values from the pre-install backup)
 # -----------------------------------------------------------------------------
 function Restore-StartupLauncher {
     Remove-Item -LiteralPath $StartupScript -Force -ErrorAction SilentlyContinue
@@ -185,7 +161,7 @@ function Restore-DohSettings($Backup) {
             Add-DnsClientDohServerAddress -ServerAddress $entry.ServerAddress `
                 -DohTemplate $entry.DohTemplate `
                 -AllowFallbackToUdp ([bool]$entry.AllowFallbackToUdp) `
-                -AutoUpgrade ([bool]$entry.AutoUpgrade)
+                -AutoUpgrade ([bool]$entry.AutoUpgrade) | Out-Null
         } catch {
             Write-Caution "Could not restore DoH entry for $($entry.ServerAddress): $($_.Exception.Message)"
         }
@@ -209,11 +185,93 @@ function Restore-DnsSettings($Backup) {
         }
         Write-Good "DNS restored on '$($adapter.Name)'"
     }
+    Clear-DnsClientCache
+}
+
+function Restore-AllNetworkSettings {
+    if (-not (Test-Path -LiteralPath $BackupFile)) {
+        Write-Caution "No backup found at $BackupFile. Network settings cannot be restored automatically."
+        Remove-Item -LiteralPath $StartupScript -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    $backup = Get-Content -LiteralPath $BackupFile -Raw | ConvertFrom-Json
+
+    Write-Step 'Restoring the startup launcher'
+    Restore-StartupLauncher
+
+    Write-Step 'Restoring DNS-over-HTTPS'
+    Restore-DohSettings -Backup $backup
+
+    Write-Step 'Restoring DNS settings'
+    Restore-DnsSettings -Backup $backup
+
+    Write-Step 'Restoring the system proxy'
+    Restore-ProxySettings -Proxy $backup.Proxy
 }
 
 # -----------------------------------------------------------------------------
-# Main
+# Restore-only mode
 # -----------------------------------------------------------------------------
+function Invoke-RestoreOnly {
+    if (-not (Test-Path -LiteralPath $StateFile) -and -not (Test-Path -LiteralPath $BackupFile)) {
+        throw 'Security DNS has no recorded backups to restore. Nothing was changed.'
+    }
+
+    Stop-AllRouting
+    Restore-AllNetworkSettings
+
+    Set-StateValue 'MODE' 'R'
+    Set-StateValue 'DNS_RESTORED' $true
+
+    Write-Host ''
+    Write-Good 'Original settings restored. The app, dependencies, and shortcuts are still installed.'
+}
+
+# -----------------------------------------------------------------------------
+# Full uninstall
+# -----------------------------------------------------------------------------
+function Remove-MsiProduct([string]$ProductCode, [string]$Label) {
+    if (-not $ProductCode) {
+        Write-Caution "$Label product code not recorded; remove it from Apps & features if you no longer need it."
+        return
+    }
+    $proc = Start-Process -FilePath 'msiexec.exe' `
+        -ArgumentList @('/x', $ProductCode, '/qn', '/norestart') -Wait -PassThru
+    if ($proc.ExitCode -in 0, 3010) {
+        Write-Good "$Label removed"
+    } else {
+        Write-Caution "Could not remove $Label (exit code $($proc.ExitCode)). Remove it from Apps & features."
+    }
+}
+
+function Remove-WarpArtifacts {
+    if (Test-Path -LiteralPath $WarpCli) {
+        if (Get-StateValue 'WARP_REGISTERED_BY_US') {
+            & $WarpCli --accept-tos registration delete *> $null
+        }
+    }
+    if (Get-StateValue 'WARP_MSI_ADDED') {
+        Remove-MsiProduct -ProductCode (Get-StateValue 'WARP_PRODUCT_CODE') -Label 'Cloudflare WARP client'
+    } else {
+        Write-Good 'Cloudflare WARP was not installed by Security DNS; the client was left in place'
+    }
+}
+
+function Remove-WireGuardArtifacts {
+    if (Get-StateValue 'WG_CLIENT_ADDED') {
+        Remove-MsiProduct -ProductCode (Get-StateValue 'WG_PRODUCT_CODE') -Label 'WireGuard client'
+    }
+}
+
+function Remove-Shortcuts {
+    $shortcuts = Get-StateValue 'SHORTCUTS'
+    foreach ($path in @($shortcuts)) {
+        if ($path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+    }
+    if ($shortcuts) { Write-Good 'Start Menu and Desktop shortcuts removed' }
+}
+
 function Invoke-Uninstall {
     Stop-AllRouting
 
@@ -224,24 +282,7 @@ function Invoke-Uninstall {
     Write-Step 'Removing shortcuts'
     Remove-Shortcuts
 
-    if (-not (Test-Path -LiteralPath $BackupFile)) {
-        Write-Caution "No backup found at $BackupFile. DNS and proxy settings cannot be restored automatically."
-        Remove-Item -LiteralPath $StartupScript -Force -ErrorAction SilentlyContinue
-    } else {
-        $backup = Get-Content -LiteralPath $BackupFile -Raw | ConvertFrom-Json
-
-        Write-Step 'Restoring the startup launcher'
-        Restore-StartupLauncher
-
-        Write-Step 'Restoring DNS-over-HTTPS'
-        Restore-DohSettings -Backup $backup
-
-        Write-Step 'Restoring DNS settings'
-        Restore-DnsSettings -Backup $backup
-
-        Write-Step 'Restoring the system proxy'
-        Restore-ProxySettings -Proxy $backup.Proxy
-    }
+    Restore-AllNetworkSettings
 
     Write-Step 'Cleaning up'
     Clear-DnsClientCache
@@ -254,4 +295,11 @@ function Invoke-Uninstall {
     Write-Host 'Restart your browsers so they stop using the proxy.'
 }
 
-Invoke-Uninstall
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
+if ($RestoreOnly) {
+    Invoke-RestoreOnly
+} else {
+    Invoke-Uninstall
+}

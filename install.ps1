@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Stop'
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-$ScriptVersion  = '2.1.0'
+$ScriptVersion  = '2.2.0'
 $RepoRaw        = 'https://raw.githubusercontent.com/arcalc/setup_privacy/main'
 $SpoofDpiRepo   = 'xvzc/SpoofDPI'
 $WgcfRepo       = 'ViRb3/wgcf'
@@ -95,7 +95,15 @@ $Messages = @{
         menu_4       = '4) Status'
         menu_5       = '5) Install missing dependencies'
         menu_6       = '6) Check for updates'
-        menu_7       = '7) Uninstall and restore original settings'
+        menu_7       = '7) Restore original settings (keep app and dependencies)'
+        menu_8       = '8) Uninstall completely'
+        restore_q    = 'Restore your original network, DNS, and proxy settings and stop all tunnels? The app, dependencies, and shortcuts stay installed.'
+        restore_done = 'Original settings restored. The app and dependencies are still installed.'
+        restore_fail = 'Restore did not complete. Check the messages above.'
+        port_busy    = 'Port {0} is already in use by another application. Choosing another port.'
+        port_switched = 'SpoofDPI will use port {0}.'
+        start_ok     = 'SpoofDPI is listening on 127.0.0.1:{0}.'
+        start_fail   = 'SpoofDPI did not start and listen on its port. The log output is shown above.'
         menu_q       = 'q) Quit'
         choose       = 'Choose an option'
         bad_choice   = 'Unknown option. Choose a number from the list.'
@@ -127,7 +135,15 @@ $Messages = @{
         menu_4       = '4) الحالة'
         menu_5       = '5) تثبيت التبعيات الناقصة'
         menu_6       = '6) التحقق من التحديثات'
-        menu_7       = '7) إلغاء التثبيت واستعادة الإعدادات الأصلية'
+        menu_7       = '7) استعادة الإعدادات الأصلية (مع إبقاء التطبيق والتبعيات)'
+        menu_8       = '8) إلغاء التثبيت بالكامل'
+        restore_q    = 'هل تريد استعادة إعدادات الشبكة والـDNS والوكيل الأصلية وإيقاف جميع الأنفاق؟ سيبقى التطبيق والتبعيات والاختصارات مثبتة.'
+        restore_done = 'تمت استعادة الإعدادات الأصلية. ما زال التطبيق والتبعيات مثبتة.'
+        restore_fail = 'لم تكتمل عملية الاستعادة. راجع الرسائل أعلاه.'
+        port_busy    = 'المنفذ {0} مستخدم بالفعل من تطبيق آخر. سيتم اختيار منفذ آخر.'
+        port_switched = 'سيستخدم SpoofDPI المنفذ {0}.'
+        start_ok     = 'SpoofDPI يستمع الآن على 127.0.0.1:{0}.'
+        start_fail   = 'لم يبدأ SpoofDPI ولم يستمع على منفذه. مخرجات السجل موضحة أعلاه.'
         menu_q       = 'q) خروج'
         choose       = 'اختر رقم الخيار'
         bad_choice   = 'خيار غير معروف. اختر رقماً من القائمة.'
@@ -460,21 +476,50 @@ function Install-SpoofDpiBinary {
 
 function Get-SpoofDpiArgs([int]$Port) {
     $spoofArgs = "--addr 127.0.0.1 --port $Port"
+    # Add --system-proxy=false only when this build advertises the flag.
+    $help = cmd /c "`"$SpoofExe`" --help 2>&1"
+    if (($help -join ' ') -match '-system-proxy') {
+        $spoofArgs = "$spoofArgs --system-proxy=false"
+    }
     if ($env:SPOOFDPI_EXTRA_FLAGS) { $spoofArgs = "$spoofArgs $($env:SPOOFDPI_EXTRA_FLAGS)" }
     return $spoofArgs
 }
 
 function Start-Proxy([int]$Port) {
-    Start-Process -FilePath $SpoofExe -ArgumentList (Get-SpoofDpiArgs -Port $Port) -WindowStyle Hidden
+    $logDir = Join-Path $AppDir 'logs'
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    $outLog = Join-Path $logDir 'spoofdpi.out.log'
+    $errLog = Join-Path $logDir 'spoofdpi.err.log'
 
-    for ($i = 0; $i -lt 10; $i++) {
-        Start-Sleep -Milliseconds 500
+    if (Test-PortInUse $Port) {
+        Write-Caution ((T 'port_busy') -f $Port)
+        $Port = Select-LocalPort
+        Set-StateValue 'PORT' $Port
+        Write-Good ((T 'port_switched') -f $Port)
+    }
+
+    Remove-Item -LiteralPath $outLog, $errLog -Force -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath $SpoofExe -ArgumentList (Get-SpoofDpiArgs -Port $Port) `
+        -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+
+    Start-Sleep -Seconds 2
+    for ($i = 0; $i -lt 20; $i++) {
+        if ($proc.HasExited) { break }
         if (Test-PortInUse $Port) {
-            Write-Good "SpoofDPI is listening on 127.0.0.1:$Port"
-            return
+            Write-Good ((T 'start_ok') -f $Port)
+            return $Port
+        }
+        Start-Sleep -Milliseconds 750
+    }
+
+    Write-Caution (T 'start_fail')
+    foreach ($log in @($errLog, $outLog)) {
+        if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 0) {
+            Write-Host "--- $(Split-Path -Leaf $log) ---"
+            Get-Content -LiteralPath $log -Tail 40 | ForEach-Object { Write-Host "    $_" }
         }
     }
-    throw "SpoofDPI did not start on 127.0.0.1:$Port."
+    throw (T 'start_fail')
 }
 
 function Stop-SpoofDpi {
@@ -658,11 +703,14 @@ function Stop-Routing {
 
 function Set-Mode([string]$Mode) {
     Stop-Routing
+    if ((Get-StateValue 'DNS_RESTORED') -eq $true) {
+        $dohOk = [bool](@(Set-SecureDns) | Select-Object -Last 1)
+        if ($dohOk) { Set-StateValue 'DNS_RESTORED' $false }
+    }
     switch ($Mode) {
         '1' {
             Install-SpoofDpiBinary
-            $port = [int](Get-StateValue 'PORT')
-            Start-Proxy -Port $port
+            $port = Start-Proxy -Port ([int](Get-StateValue 'PORT'))
             Set-SystemProxy -Port $port
             Install-StartupLauncher -Port $port
         }
@@ -900,6 +948,7 @@ function Show-MainMenu {
         Write-Host ('  ' + (T 'menu_5'))
         Write-Host ('  ' + (T 'menu_6'))
         Write-Host ('  ' + (T 'menu_7'))
+        Write-Host ('  ' + (T 'menu_8'))
         Write-Host ('  ' + (T 'menu_q'))
         Write-Host ''
 
@@ -916,6 +965,18 @@ function Show-MainMenu {
             }
             '6' { Invoke-UpdateCheck }
             '7' {
+                if (Confirm-Action (T 'restore_q')) {
+                    try {
+                        Invoke-RestoreOriginal
+                        Write-Good (T 'restore_done')
+                    }
+                    catch {
+                        Write-Caution (T 'restore_fail')
+                        Write-Caution $_.Exception.Message
+                    }
+                }
+            }
+            '8' {
                 if (Confirm-Action (T 'uninst_q')) {
                     Invoke-Uninstaller
                     return
@@ -924,6 +985,16 @@ function Show-MainMenu {
             'q' { return }
             default { Write-Caution (T 'bad_choice') }
         }
+    }
+}
+
+function Invoke-RestoreOriginal {
+    if (Test-Path -LiteralPath $AppUninstall) {
+        & $AppUninstall -RestoreOnly
+    } else {
+        $remote = Join-Path $env:TEMP 'security-dns-uninstall.ps1'
+        Invoke-WebRequest -Uri "$RepoRaw/uninstall.ps1" -OutFile $remote -UseBasicParsing
+        & $remote -RestoreOnly
     }
 }
 

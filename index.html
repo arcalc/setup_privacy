@@ -20,10 +20,11 @@
     /*
       Strict palette. Each mode uses three core shades plus its surface:
         Dark mode
-          #000000  pure black        (background)
-          #141414  deep charcoal     (cards and code blocks)
-          #D4AF37  gold              (primary text and accents)
-          #CD7F32  bronze            (secondary text and labels)
+          #121212  charcoal black    (background, cards, and code blocks)
+          #E0E0E0  light gray        (primary text)
+          #B0B0B0  medium gray       (secondary text and labels)
+          #444444  dark gray         (borders and dividers)
+          #888888  soft gray         (accents and buttons)
         Light mode
           #FBF6DC  yellowish-white   (background)
           #F3EBC8  warm cream        (cards and code blocks)
@@ -31,13 +32,13 @@
           #9C6B17  muted amber       (secondary text and labels)
     */
     :root {
-      --bg: #000000;
-      --surface: #141414;
-      --fg: #D4AF37;
-      --accent: #D4AF37;
-      --soft: #CD7F32;
-      --line: rgba(212, 175, 55, 0.28);
-      --line-strong: rgba(212, 175, 55, 0.6);
+      --bg: #121212;
+      --surface: #121212;
+      --fg: #E0E0E0;
+      --accent: #888888;
+      --soft: #B0B0B0;
+      --line: rgba(68, 68, 68, 1);
+      --line-strong: #888888;
     }
     [data-theme="light"] {
       --bg: #FBF6DC;
