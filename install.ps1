@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Stop'
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-$ScriptVersion  = '2.2.0'
+$ScriptVersion  = '2.2.1'
 $RepoRaw        = 'https://raw.githubusercontent.com/arcalc/setup_privacy/main'
 $SpoofDpiRepo   = 'xvzc/SpoofDPI'
 $WgcfRepo       = 'ViRb3/wgcf'
@@ -475,13 +475,31 @@ function Install-SpoofDpiBinary {
 }
 
 function Get-SpoofDpiArgs([int]$Port) {
-    $spoofArgs = "--addr 127.0.0.1 --port $Port"
-    # Add --system-proxy=false only when this build advertises the flag.
-    $help = cmd /c "`"$SpoofExe`" --help 2>&1"
-    if (($help -join ' ') -match '-system-proxy') {
-        $spoofArgs = "$spoofArgs --system-proxy=false"
+    # Read the installed build's own help text, then use only the options it lists.
+    $help = (cmd /c "`"$SpoofExe`" --help 2>&1") -join ' '
+    $configFile = Join-Path $AppDir 'spoofdpi.toml'
+
+    if ($help -match '(^|\s)-config(\s|=|$)') {
+        Set-Content -LiteralPath $configFile -Value "[app]`r`nlisten-addr = `"127.0.0.1:$Port`"`r`n" -Encoding ASCII
+        $spoofArgs = "--config `"$configFile`""
     }
-    if ($env:SPOOFDPI_EXTRA_FLAGS) { $spoofArgs = "$spoofArgs $($env:SPOOFDPI_EXTRA_FLAGS)" }
+    elseif ($help -match '(^|\s)-addr(\s|=|$)' -and $help -match '(^|\s)-port(\s|=|$)') {
+        $spoofArgs = "--addr 127.0.0.1 --port $Port"
+    }
+    elseif ($help -match '(^|\s)-port(\s|=|$)') {
+        $spoofArgs = "--port $Port"
+    }
+    else {
+        # No port option: the build uses its default port, so only that port works.
+        $spoofArgs = ''
+    }
+
+    if ($help -match '(^|\s)-system-proxy(\s|=|$)') {
+        $spoofArgs = "$spoofArgs --system-proxy=false".Trim()
+    }
+    if ($env:SPOOFDPI_EXTRA_FLAGS) {
+        $spoofArgs = "$spoofArgs $($env:SPOOFDPI_EXTRA_FLAGS)".Trim()
+    }
     return $spoofArgs
 }
 
@@ -528,10 +546,11 @@ function Stop-SpoofDpi {
 }
 
 function Install-StartupLauncher([int]$Port) {
+    $spoofArgsVbs = (Get-SpoofDpiArgs -Port $Port).Replace('"', '""')
     $launcher = @"
 ' Security DNS - hidden launcher for SpoofDPI. Managed by Security DNS; removed when mode 1 is off.
 Set shell = CreateObject("WScript.Shell")
-shell.Run """$SpoofExe"" $(Get-SpoofDpiArgs -Port $Port)", 0, False
+shell.Run """$SpoofExe"" $spoofArgsVbs", 0, False
 "@
     New-Item -ItemType Directory -Path (Split-Path -Parent $StartupScript) -Force | Out-Null
     Set-Content -LiteralPath $StartupScript -Value $launcher -Encoding ASCII

@@ -24,7 +24,8 @@
 
 set -Eeuo pipefail
 
-readonly SCRIPT_VERSION="2.2.0"
+readonly SCRIPT_VERSION="2.2.1"
+readonly SPOOF_CONFIG="/usr/local/lib/security-dns/spoofdpi.toml"
 readonly REPO_RAW="https://raw.githubusercontent.com/arcalc/setup_privacy/main"
 readonly SPOOFDPI_REPO="xvzc/SpoofDPI"
 readonly WGCF_REPO="ViRb3/wgcf"
@@ -114,6 +115,7 @@ declare -A MSG_EN=(
   [preflight_fail]="SpoofDPI exited during the test run (exit code %s). Its output is shown below."
   [start_fail]="SpoofDPI did not start and listen on its port. The service log is shown below."
   [start_ok]="SpoofDPI is listening on 127.0.0.1:%s."
+  [port_fixed]="This SpoofDPI build cannot change its port, and port %s is in use. Free that port and try again."
 )
 
 declare -A MSG_AR=(
@@ -159,6 +161,7 @@ declare -A MSG_AR=(
   [preflight_fail]="أُغلق SpoofDPI أثناء الاختبار الأولي (رمز الخروج %s). المخرجات موضحة أدناه."
   [start_fail]="لم يبدأ SpoofDPI ولم يستمع على منفذه. سجل الخدمة موضح أدناه."
   [start_ok]="SpoofDPI يستمع الآن على 127.0.0.1:%s."
+  [port_fixed]="لا يمكن لهذا الإصدار من SpoofDPI تغيير منفذه، والمنفذ %s مستخدم. حرر هذا المنفذ وحاول مرة أخرى."
 )
 
 # msg <key> [printf arguments...]: prints the text in the selected language.
@@ -763,15 +766,50 @@ ensure_wireguard_profile() {
 # -----------------------------------------------------------------------------
 # Builds SpoofDPI's command-line arguments. Optional flags are added only when
 # the installed binary advertises them, so an unknown flag cannot stop startup.
-build_spoofdpi_args() {  # <port>
-  local port="$1" help args
-  args="--addr 127.0.0.1 --port ${port}"
+# Reads the installed build's --help output to find how it accepts its listen
+# address and port. Prints one of: config, flags, port, fixed.
+#   config  a TOML file with [app] listen-addr is used
+#   flags   -addr and -port are both accepted
+#   port    only -port is accepted
+#   fixed   no option controls the port; the build always uses its default
+spoofdpi_port_control() {
+  local help
   help="$("$SPOOF_BIN" --help 2>&1 || true)"
-  if grep -q -- '-system-proxy' <<< "$help"; then
-    args="${args} --system-proxy=false"
+  if grep -qE '(^|[[:space:]])-config([[:space:]=]|$)' <<< "$help"; then
+    echo "config"
+  elif grep -qE '(^|[[:space:]])-addr([[:space:]=]|$)' <<< "$help" \
+    && grep -qE '(^|[[:space:]])-port([[:space:]=]|$)' <<< "$help"; then
+    echo "flags"
+  elif grep -qE '(^|[[:space:]])-port([[:space:]=]|$)' <<< "$help"; then
+    echo "port"
+  else
+    echo "fixed"
+  fi
+}
+
+# Builds the startup arguments that match the installed build. Optional flags
+# such as --system-proxy are added only when the build lists them.
+build_spoofdpi_args() {  # <port>
+  local port="$1" control args="" help
+  control="$(spoofdpi_port_control)"
+  case "$control" in
+    config)
+      mkdir -p "$LIB_DIR"
+      printf '[app]\nlisten-addr = "127.0.0.1:%s"\n' "$port" > "$SPOOF_CONFIG"
+      chmod 0644 "$SPOOF_CONFIG"
+      args="--config ${SPOOF_CONFIG}"
+      ;;
+    flags) args="--addr 127.0.0.1 --port ${port}" ;;
+    port)  args="--port ${port}" ;;
+    *)     args="" ;;
+  esac
+
+  help="$("$SPOOF_BIN" --help 2>&1 || true)"
+  if grep -qE '(^|[[:space:]])-system-proxy([[:space:]=]|$)' <<< "$help"; then
+    args="${args:+$args }--system-proxy=false"
   fi
   if [[ -n "$SPOOFDPI_EXTRA_FLAGS" ]]; then
-    args="${args} ${SPOOFDPI_EXTRA_FLAGS}"
+    args="${args:+$args }${SPOOFDPI_EXTRA_FLAGS}"
   fi
   printf '%s' "$args"
 }
@@ -780,8 +818,22 @@ build_spoofdpi_args() {  # <port>
 # service happens earlier in the mode switch, so a listener found here belongs
 # to another application. In that case a free port is chosen and saved.
 ensure_port_free() {
-  local port new
+  local port new control
   port="$(state_get PORT)"
+  control="$(spoofdpi_port_control)"
+
+  if [[ "$control" == "fixed" ]]; then
+    # This build always uses its default port, so that port is the only option.
+    if [[ "$port" != "8080" ]]; then
+      state_set PORT 8080
+      port="8080"
+    fi
+    if port_in_use "$port"; then
+      die "$(msg port_fixed "$port")"
+    fi
+    return 0
+  fi
+
   if port_in_use "$port"; then
     warn "$(msg port_busy "$port")"
     new="$(select_port)" || die "$(msg no_port)"
