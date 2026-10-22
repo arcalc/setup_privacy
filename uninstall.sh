@@ -16,6 +16,7 @@
 # Usage:
 #   sudo bash uninstall.sh                 full uninstall
 #   sudo bash uninstall.sh --restore-only  restore original settings only
+#   sudo bash uninstall.sh --tool NAME     remove one tool: spoofdpi, warp or wireguard
 # =============================================================================
 
 set -Eeuo pipefail
@@ -41,6 +42,9 @@ readonly WARP_APT_KEY="/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg"
 readonly WARP_DNF_REPO="/etc/yum.repos.d/cloudflare-warp.repo"
 
 RESTORE_ONLY=0
+TOOL_ONLY=""
+readonly SPOOF_CONFIG="/usr/local/lib/security-dns/spoofdpi.toml"
+readonly WGCF_DIR="/var/lib/security-dns/wgcf"
 PENDING=0
 PM=""
 
@@ -289,19 +293,78 @@ run_full_uninstall() {
   printf '\nOpen a new terminal, or log out and back in, so environment changes take effect.\n'
 }
 
+
+# -----------------------------------------------------------------------------
+# Remove a single tool (used by the Advanced Tool Manager's Uninstall action).
+# Only things this app installed are removed; anything that was already on the
+# system before is left in place.
+# -----------------------------------------------------------------------------
+state_unset() {  # <key>
+  [[ -f "$STATE_FILE" ]] && sed -i "/^${1}=/d" "$STATE_FILE"
+  return 0
+}
+
+remove_tool_spoofdpi() {
+  step "Removing SpoofDPI"
+  systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+  rm -f "$SERVICE_FILE" "$SPOOF_CONFIG"
+  systemctl daemon-reload
+  systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
+  if [[ -n "$(state_value SPOOFDPI_TAG)" ]]; then
+    rm -f "$SPOOF_BIN"
+    state_unset SPOOFDPI_TAG
+    log "SpoofDPI program removed"
+  else
+    log "SpoofDPI program was not installed by Security DNS; it was left in place"
+  fi
+}
+
+remove_tool_warp() {
+  remove_warp
+  local key
+  for key in WARP_PKG_ADDED WARP_REGISTERED_BY_US WARP_REPO_ADDED WARP_KEY_ADDED WARP_SVC_ENABLED_BY_US; do
+    state_unset "$key"
+  done
+}
+
+remove_tool_wireguard() {
+  step "Removing WireGuard"
+  systemctl disable --now "$WG_SERVICE" >/dev/null 2>&1 || true
+  remove_wireguard
+  rm -rf "$WGCF_DIR"
+  local key
+  for key in WG_CONF_ADDED WG_TOOLS_ADDED WGCF_BIN_ADDED WGCF_TAG; do
+    state_unset "$key"
+  done
+}
+
+run_tool_removal() {
+  case "$TOOL_ONLY" in
+    spoofdpi)  remove_tool_spoofdpi ;;
+    warp)      remove_tool_warp ;;
+    wireguard) remove_tool_wireguard ;;
+    *) die "Unknown tool: ${TOOL_ONLY} (use spoofdpi, warp or wireguard)" ;;
+  esac
+  log "Done. Your original network settings are still backed up."
+}
+
 main() {
   [[ "${EUID}" -eq 0 ]] || die "Run as root: sudo bash uninstall.sh"
 
-  for arg in "$@"; do
-    case "$arg" in
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
       --restore-only) RESTORE_ONLY=1 ;;
-      *) die "Unknown option: ${arg}" ;;
+      --tool) shift; TOOL_ONLY="${1:-}" ;;
+      *) die "Unknown option: ${1}" ;;
     esac
+    shift
   done
 
   detect_package_manager
 
-  if [[ "$RESTORE_ONLY" -eq 1 ]]; then
+  if [[ -n "$TOOL_ONLY" ]]; then
+    run_tool_removal
+  elif [[ "$RESTORE_ONLY" -eq 1 ]]; then
     run_restore_only
   else
     run_full_uninstall

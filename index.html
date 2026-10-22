@@ -153,6 +153,19 @@
     .panel li { margin: 10px 0; font-size: 0.95rem; }
     .legal { margin-top: 40px; font-size: 0.85rem; opacity: 0.7; }
 
+    .cards-2 { display: grid; gap: 24px; margin-top: 48px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .choice { border: 1px solid var(--line); border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 14px; }
+    .choice:hover { border-color: var(--accent); }
+    .badge { align-self: flex-start; font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
+             border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 12px; color: var(--soft); }
+    .choice ul { margin: 0; padding-inline-start: 20px; }
+    .choice li { margin: 6px 0; font-size: 0.95rem; }
+    .choice .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: auto; padding-top: 10px; }
+    .small-note { font-size: 0.85rem; color: var(--soft); }
+    .foot-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .foot-grid h4 { margin: 0 0 8px; font-size: 0.8rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--soft); }
+    .foot-grid p { margin: 0; }
+    .foot-bottom { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
     footer { border-top: 1px solid var(--line); padding: 36px 0; font-size: 0.88rem; }
     .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
 
@@ -172,6 +185,7 @@
     <div class="wrap nav">
       <a href="#top" class="brand" data-i18n="brand">Security DNS</a>
       <nav class="nav-links">
+        <a href="#download" class="hide-sm" data-i18n="navDownload">Download</a>
         <a href="#features" class="hide-sm" data-i18n="navFeatures">Features</a>
         <a href="#install" class="hide-sm" data-i18n="navInstall">Install</a>
         <a href="#limits" class="hide-sm" data-i18n="navLimits">Limits</a>
@@ -190,8 +204,48 @@
         <h1 data-i18n="heroTitle">Stop your ISP from reading your DNS.</h1>
         <p class="lead" data-i18n="heroText">Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same unless you enable the optional WARP mode.</p>
         <div class="hero-actions">
-          <a href="#install" class="btn btn-solid" data-i18n="ctaInstall">Install now</a>
+          <a href="#download" class="btn btn-solid" data-i18n="ctaGui">Download GUI Version</a>
+          <a href="#install" class="btn btn-solid" data-i18n="ctaCli">Download CLI Version</a>
           <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" class="btn" data-i18n="ctaSource">View source on GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Choose your version -->
+    <section id="download">
+      <div class="wrap">
+        <h2 data-i18n="dlTitle">Choose your version</h2>
+        <p class="section-intro" data-i18n="dlIntro">Both versions do the same job and offer the same tools. Pick the one that fits you, and use only one of them on a computer.</p>
+        <div class="cards-2">
+          <article class="choice" id="gui">
+            <span class="badge" data-i18n="guiTag">For most people</span>
+            <h3 data-i18n="guiTitle">GUI version</h3>
+            <p data-i18n="guiText">A desktop app for Windows and Linux. Click to switch tools, see their status, fix problems with one button, and change every setting. No commands needed.</p>
+            <ul>
+              <li data-i18n="guiB1">Dashboard, Tool Manager, and Advanced Settings in one window</li>
+              <li data-i18n="guiB2">Smart error dialogs with an Apply Fix button</li>
+              <li data-i18n="guiB3">English and Arabic, dark and light themes</li>
+            </ul>
+            <div class="actions">
+              <a href="https://github.com/arcalc/setup_privacy/releases/latest" target="_blank" rel="noopener" class="btn btn-solid" data-i18n="guiBtn">Download GUI Version</a>
+              <a href="https://github.com/arcalc/setup_privacy/tree/main/gui" target="_blank" rel="noopener" class="btn" data-i18n="guiBuild">Build from source</a>
+            </div>
+            <p class="small-note" data-i18n="guiNote">If no release is listed yet, build it from source with Qt6 and CMake (see the README).</p>
+          </article>
+          <article class="choice" id="cli">
+            <span class="badge" data-i18n="cliTag">For power users and servers</span>
+            <h3 data-i18n="cliTitle">CLI version</h3>
+            <p data-i18n="cliText">Lightweight Bash (Linux) and PowerShell (Windows) scripts with a numbered menu. Works over SSH and on servers. Small, readable, and easy to audit.</p>
+            <ul>
+              <li data-i18n="cliB1">One-line install with no extra software</li>
+              <li data-i18n="cliB2">The same tools, kill switch, settings, and smart recovery</li>
+              <li data-i18n="cliB3">Every step is a plain script you can read</li>
+            </ul>
+            <div class="actions">
+              <a href="#install" class="btn btn-solid" data-i18n="cliBtn">Download CLI Version</a>
+              <a href="https://github.com/arcalc/setup_privacy/tree/main/cli" target="_blank" rel="noopener" class="btn" data-i18n="cliScripts">View the scripts</a>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -208,6 +262,9 @@
           <article class="cell"><span class="num">04</span><h3 data-i18n="f4Title">Perfect undo</h3><p data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p></article>
           <article class="cell"><span class="num">05</span><h3 data-i18n="f5Title">Leak protection</h3><p data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p></article>
           <article class="cell"><span class="num">06</span><h3 data-i18n="f6Title">Open and auditable</h3><p data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p></article>
+          <article class="cell"><span class="num">07</span><h3 data-i18n="f7Title">Advanced Tool Manager</h3><p data-i18n="f7Text">Install, start, stop, enable, disable, or uninstall SpoofDPI, WARP, and WireGuard one by one. Each tool works on its own.</p></article>
+          <article class="cell"><span class="num">08</span><h3 data-i18n="f8Title">Kill switch</h3><p data-i18n="f8Text">One button or command stops every proxy and tunnel at once and keeps encrypted DNS on. It is an emergency off switch, not a firewall.</p></article>
+          <article class="cell"><span class="num">09</span><h3 data-i18n="f9Title">Fully customizable</h3><p data-i18n="f9Text">Choose ports, DNS servers, the WireGuard endpoint, and tool paths. Every setting has a short explanation.</p></article>
         </div>
       </div>
     </section>
@@ -222,12 +279,12 @@
           <div class="panel">
             <h3 data-i18n="linuxTitle">Linux</h3>
             <div class="code">
-              <pre><code id="cmd-linux-install">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash</code></pre>
+              <pre><code id="cmd-linux-install">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli/install.sh | sudo bash</code></pre>
               <button type="button" class="copy" data-copy="cmd-linux-install" data-i18n="copy">Copy</button>
             </div>
             <p class="label" data-i18n="linuxUninstallLabel">Uninstall:</p>
             <div class="code">
-              <pre><code id="cmd-linux-uninstall">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.sh | sudo bash -s -- --uninstall</code></pre>
+              <pre><code id="cmd-linux-uninstall">curl -fsSL https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli/install.sh | sudo bash -s -- --uninstall</code></pre>
               <button type="button" class="copy" data-copy="cmd-linux-uninstall" data-i18n="copy">Copy</button>
             </div>
           </div>
@@ -235,12 +292,12 @@
           <div class="panel">
             <h3 data-i18n="windowsTitle">Windows (Administrator PowerShell)</h3>
             <div class="code">
-              <pre><code id="cmd-win-install">irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 | iex</code></pre>
+              <pre><code id="cmd-win-install">irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli/install.ps1 | iex</code></pre>
               <button type="button" class="copy" data-copy="cmd-win-install" data-i18n="copy">Copy</button>
             </div>
             <p class="label" data-i18n="windowsUninstallLabel">Uninstall (downloads the script first):</p>
             <div class="code">
-              <pre><code id="cmd-win-uninstall">$s = "$env:TEMP\security-dns-install.ps1"; irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/install.ps1 -OutFile $s; &amp; $s -Uninstall</code></pre>
+              <pre><code id="cmd-win-uninstall">$s = "$env:TEMP\security-dns-install.ps1"; irm https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli/install.ps1 -OutFile $s; &amp; $s -Uninstall</code></pre>
               <button type="button" class="copy" data-copy="cmd-win-uninstall" data-i18n="copy">Copy</button>
             </div>
           </div>
@@ -294,9 +351,26 @@
   </main>
 
   <footer>
-    <div class="wrap foot">
-      <span data-i18n="footerText">Security DNS is open source under the MIT License.</span>
-      <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <h4 data-i18n="footerPortfolio">Developer portfolio</h4>
+          <p><a href="https://arcalc.github.io/arcalc/" target="_blank" rel="noopener">arcalc.github.io/arcalc</a></p>
+        </div>
+        <div>
+          <h4 data-i18n="footerContact">Support and security email</h4>
+          <p><a href="mailto:thearcalc@protonmail.com">thearcalc@protonmail.com</a></p>
+        </div>
+        <div>
+          <h4 data-i18n="footerSecurityTitle">Security policy</h4>
+          <p data-i18n="footerSecurityText">Found a vulnerability? Do NOT open a public issue. Report it privately by email, or through GitHub Private Vulnerability Reporting (Security tab, Report a vulnerability). This protects the community until a fix is released.</p>
+          <p style="margin-top:8px"><a href="https://github.com/arcalc/setup_privacy/blob/main/SECURITY.md" target="_blank" rel="noopener" data-i18n="footerReadPolicy">Read the full policy</a></p>
+        </div>
+      </div>
+      <div class="foot foot-bottom">
+        <span data-i18n="footerText">Security DNS is open source under the MIT License.</span>
+        <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
+      </div>
     </div>
   </footer>
 
@@ -306,7 +380,7 @@
       en: {
         brand: 'Security DNS',
         navFeatures: 'Features',
-        navInstall: 'Install',
+        navInstall: 'CLI install',
         navLimits: 'Limits',
         themeLight: 'Light',
         themeDark: 'Dark',
@@ -330,7 +404,7 @@
         f5Text: 'Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.',
         f6Title: 'Open and auditable',
         f6Text: 'Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.',
-        installTitle: 'Install in one command',
+        installTitle: 'CLI version: install in one command',
         installIntro: 'Run the command for your system. Windows needs an elevated (Administrator) PowerShell window.',
         linuxTitle: 'Linux',
         windowsTitle: 'Windows (Administrator PowerShell)',
@@ -357,13 +431,46 @@
         visible3: 'QUIC / HTTP/3 traffic, unless you disable it in your browser',
         visible4: 'Applications that ignore the system proxy settings',
         legalNote: 'Check the laws in your country regarding circumvention and privacy tools before you use them. This software is provided as is, without warranty.',
+        navDownload: 'Download',
+        ctaGui: 'Download GUI Version',
+        ctaCli: 'Download CLI Version',
+        dlTitle: 'Choose your version',
+        dlIntro: 'Both versions do the same job and offer the same tools. Pick the one that fits you, and use only one of them on a computer.',
+        guiTag: 'For most people',
+        guiTitle: 'GUI version',
+        guiText: 'A desktop app for Windows and Linux. Click to switch tools, see their status, fix problems with one button, and change every setting. No commands needed.',
+        guiB1: 'Dashboard, Tool Manager, and Advanced Settings in one window',
+        guiB2: 'Smart error dialogs with an Apply Fix button',
+        guiB3: 'English and Arabic, dark and light themes',
+        guiBtn: 'Download GUI Version',
+        guiBuild: 'Build from source',
+        guiNote: 'If no release is listed yet, build it from source with Qt6 and CMake (see the README).',
+        cliTag: 'For power users and servers',
+        cliTitle: 'CLI version',
+        cliText: 'Lightweight Bash (Linux) and PowerShell (Windows) scripts with a numbered menu. Works over SSH and on servers. Small, readable, and easy to audit.',
+        cliB1: 'One-line install with no extra software',
+        cliB2: 'The same tools, kill switch, settings, and smart recovery',
+        cliB3: 'Every step is a plain script you can read',
+        cliBtn: 'Download CLI Version',
+        cliScripts: 'View the scripts',
+        f7Title: 'Advanced Tool Manager',
+        f7Text: 'Install, start, stop, enable, disable, or uninstall SpoofDPI, WARP, and WireGuard one by one. Each tool works on its own.',
+        f8Title: 'Kill switch',
+        f8Text: 'One button or command stops every proxy and tunnel at once and keeps encrypted DNS on. It is an emergency off switch, not a firewall.',
+        f9Title: 'Fully customizable',
+        f9Text: 'Choose ports, DNS servers, the WireGuard endpoint, and tool paths. Every setting has a short explanation.',
+        footerPortfolio: 'Developer portfolio',
+        footerContact: 'Support and security email',
+        footerSecurityTitle: 'Security policy',
+        footerSecurityText: 'Found a vulnerability? Do NOT open a public issue. Report it privately by email, or through GitHub Private Vulnerability Reporting (Security tab, Report a vulnerability). This protects the community until a fix is released.',
+        footerReadPolicy: 'Read the full policy',
         footerText: 'Security DNS is open source under the MIT License.',
         footerLink: 'github.com/arcalc/setup_privacy'
       },
       ar: {
         brand: 'Security DNS',
         navFeatures: 'المميزات',
-        navInstall: 'التثبيت',
+        navInstall: 'تثبيت CLI',
         navLimits: 'الحدود',
         themeLight: 'فاتح',
         themeDark: 'داكن',
@@ -387,7 +494,7 @@
         f5Text: 'تم تعطيل الرجوع إلى النص غير المشفّر. يوجّه لينكس كل الاستعلامات عبر المحلل المشفّر، ويعطّل ويندوز الرجوع إلى UDP.',
         f6Title: 'مفتوح وقابل للتدقيق',
         f6Text: 'سكربتات بسيطة لـ shell وPowerShell دون ملفات ثنائية مغلقة منا. تُتحقق التنزيلات من المجموع الاختباري عند نشره.',
-        installTitle: 'ثبّت بأمر واحد',
+        installTitle: 'نسخة CLI: ثبّت بأمر واحد',
         installIntro: 'شغّل الأمر الخاص بنظامك. يحتاج ويندوز إلى نافذة PowerShell بصلاحيات المسؤول.',
         linuxTitle: 'لينكس',
         windowsTitle: 'ويندوز (PowerShell بصلاحيات المسؤول)',
@@ -414,6 +521,39 @@
         visible3: 'حركة QUIC / HTTP/3 ما لم تعطّلها في متصفحك',
         visible4: 'التطبيقات التي تتجاهل إعدادات وكيل النظام',
         legalNote: 'تحقق من القوانين في بلدك المتعلقة بأدوات التحايل والخصوصية قبل استخدامها. البرنامج مُقدَّم كما هو دون أي ضمان.',
+        navDownload: 'التنزيل',
+        ctaGui: 'نزّل النسخة الرسومية',
+        ctaCli: 'نزّل نسخة سطر الأوامر',
+        dlTitle: 'اختر نسختك',
+        dlIntro: 'تؤدي النسختان العمل نفسه وتقدمان الأدوات نفسها. اختر ما يناسبك، واستخدم واحدة منهما فقط على الجهاز.',
+        guiTag: 'لمعظم المستخدمين',
+        guiTitle: 'النسخة الرسومية (GUI)',
+        guiText: 'تطبيق مكتبي لويندوز ولينكس. اضغط للتبديل بين الأدوات، وشاهد حالتها، وأصلح المشكلات بزر واحد، وغيّر كل الإعدادات. لا حاجة لأي أوامر.',
+        guiB1: 'لوحة التحكم ومدير الأدوات والإعدادات المتقدمة في نافذة واحدة',
+        guiB2: 'نوافذ أخطاء ذكية بزر تطبيق الحل',
+        guiB3: 'العربية والإنجليزية، ومظهر داكن وفاتح',
+        guiBtn: 'نزّل النسخة الرسومية',
+        guiBuild: 'ابنِها من المصدر',
+        guiNote: 'إن لم يُنشر إصدار بعد، ابنِها من المصدر باستخدام Qt6 وCMake (راجع ملف README).',
+        cliTag: 'للمتقدمين والخوادم',
+        cliTitle: 'نسخة سطر الأوامر (CLI)',
+        cliText: 'سكربتات خفيفة بـ Bash (لينكس) وPowerShell (ويندوز) بقائمة مرقّمة. تعمل عبر SSH وعلى الخوادم. صغيرة ومقروءة وسهلة التدقيق.',
+        cliB1: 'تثبيت بسطر واحد دون برامج إضافية',
+        cliB2: 'الأدوات نفسها ومفتاح الإيقاف الطارئ والإعدادات والتعافي الذكي',
+        cliB3: 'كل خطوة سكربت بسيط يمكنك قراءته',
+        cliBtn: 'نزّل نسخة سطر الأوامر',
+        cliScripts: 'اعرض السكربتات',
+        f7Title: 'مدير الأدوات المتقدم',
+        f7Text: 'ثبّت أو شغّل أو أوقف أو فعّل أو عطّل أو احذف SpoofDPI وWARP وWireGuard كلاً على حدة. كل أداة تعمل باستقلال.',
+        f8Title: 'مفتاح الإيقاف الطارئ',
+        f8Text: 'زر أو أمر واحد يوقف كل وكيل ونفق دفعة واحدة ويُبقي DNS المشفّر مفعّلاً. هو مفتاح إيقاف طارئ وليس جداراً نارياً.',
+        f9Title: 'قابل للتخصيص بالكامل',
+        f9Text: 'اختر المنافذ وخوادم DNS ونقطة اتصال WireGuard ومسارات الأدوات. لكل إعداد شرح قصير.',
+        footerPortfolio: 'موقع المطوّر',
+        footerContact: 'البريد للدعم والأمان',
+        footerSecurityTitle: 'سياسة الأمان',
+        footerSecurityText: 'وجدت ثغرة أمنية؟ لا تفتح مشكلة عامة (public issue). أبلغ عنها بشكل خاص عبر البريد، أو عبر ميزة الإبلاغ الخاص عن الثغرات في GitHub (تبويب Security ثم Report a vulnerability). هذا يحمي المجتمع حتى يصدر الإصلاح.',
+        footerReadPolicy: 'اقرأ السياسة كاملة',
         footerText: 'Security DNS مفتوح المصدر بموجب رخصة MIT.',
         footerLink: 'github.com/arcalc/setup_privacy'
       }

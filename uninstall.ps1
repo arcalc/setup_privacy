@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Security DNS - Windows uninstaller.
@@ -12,6 +12,9 @@
                     WireGuard only if install.ps1 installed them, removes the
                     shortcuts, and deletes the application folder.
 
+.PARAMETER Tool
+    Remove a single tool (spoofdpi, warp or wireguard) and nothing else.
+
 .PARAMETER RestoreOnly
     Restore original settings without uninstalling.
 
@@ -20,10 +23,16 @@
 
 .EXAMPLE
     .\uninstall.ps1 -RestoreOnly
+
+.EXAMPLE
+    .\uninstall.ps1 -Tool wireguard
 #>
 [CmdletBinding()]
 param(
-    [switch]$RestoreOnly
+    [switch]$RestoreOnly,
+
+    [ValidateSet('', 'spoofdpi', 'warp', 'wireguard')]
+    [string]$Tool = ''
 )
 
 Set-StrictMode -Version Latest
@@ -295,10 +304,61 @@ function Invoke-Uninstall {
     Write-Host 'Restart your browsers so they stop using the proxy.'
 }
 
+
+# -----------------------------------------------------------------------------
+# Remove a single tool (used by the Advanced Tool Manager's Uninstall action).
+# Only things this app installed are removed; anything that was already on the
+# system before is left in place.
+# -----------------------------------------------------------------------------
+function Remove-StateValue([string]$Key) {
+    if (-not (Test-Path -LiteralPath $StateFile)) { return }
+    $state = Read-State
+    $table = [ordered]@{}
+    foreach ($prop in $state.PSObject.Properties) { if ($prop.Name -ne $Key) { $table[$prop.Name] = $prop.Value } }
+    $table | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+}
+
+function Invoke-ToolRemoval([string]$Name) {
+    switch ($Name) {
+        'spoofdpi' {
+            Write-Step 'Removing SpoofDPI'
+            Get-Process -Name 'spoofdpi' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $StartupScript -Force -ErrorAction SilentlyContinue
+            if (Get-StateValue 'SPOOFDPI_TAG') {
+                Remove-Item -LiteralPath (Join-Path $AppDir 'bin\spoofdpi.exe') -Force -ErrorAction SilentlyContinue
+                Remove-StateValue 'SPOOFDPI_TAG'
+                Write-Good 'SpoofDPI program removed'
+            } else {
+                Write-Good 'SpoofDPI program was not installed by Security DNS; it was left in place'
+            }
+        }
+        'warp' {
+            Write-Step 'Removing Cloudflare WARP'
+            if (Test-Path -LiteralPath $WarpCli) { & $WarpCli --accept-tos disconnect *> $null }
+            Remove-WarpArtifacts
+            foreach ($key in @('WARP_MSI_ADDED', 'WARP_PRODUCT_CODE', 'WARP_REGISTERED_BY_US')) { Remove-StateValue $key }
+        }
+        'wireguard' {
+            Write-Step 'Removing WireGuard'
+            if (Test-Path -LiteralPath $WgExe) { & $WgExe /uninstalltunnelservice $WgTunnelName *> $null }
+            Remove-WireGuardArtifacts
+            Remove-Item -LiteralPath (Join-Path $AppDir 'security-dns.conf') -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $AppDir 'wgcf') -Recurse -Force -ErrorAction SilentlyContinue
+            if (Get-StateValue 'WGCF_EXE_ADDED') {
+                Remove-Item -LiteralPath (Join-Path $AppDir 'bin\wgcf.exe') -Force -ErrorAction SilentlyContinue
+            }
+            foreach ($key in @('WG_CLIENT_ADDED', 'WG_PRODUCT_CODE', 'WG_CONF_ADDED', 'WGCF_EXE_ADDED', 'WGCF_TAG')) { Remove-StateValue $key }
+        }
+    }
+    Write-Good 'Done. Your original network settings are still backed up.'
+}
+
 # -----------------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------------
-if ($RestoreOnly) {
+if ($Tool) {
+    Invoke-ToolRemoval -Name $Tool
+} elseif ($RestoreOnly) {
     Invoke-RestoreOnly
 } else {
     Invoke-Uninstall
