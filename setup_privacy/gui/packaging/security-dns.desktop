@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Security DNS
+Comment=Encrypted DNS, DPI bypass, and VPN-like tools
+Exec=security-dns
+Icon=network-vpn
+Terminal=false
+Categories=Network;Security;

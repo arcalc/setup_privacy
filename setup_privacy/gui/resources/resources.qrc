@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>i18n/en.json</file>
+        <file>i18n/ar.json</file>
+    </qresource>
+</RCC>
