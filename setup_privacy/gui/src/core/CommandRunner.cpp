@@ -36,10 +36,23 @@ CommandResult CommandRunner::run(const QString& program, const QStringList& args
         process.write(input);
     process.closeWriteChannel();
 
-    if (!process.waitForFinished(timeoutMs)) {
-        result.timedOut = true;
-        process.kill();
-        process.waitForFinished(2000);
+    // Wait in short steps so a cancel request (kill switch) can stop a long command quickly.
+    int waited = 0;
+    while (!process.waitForFinished(200)) {
+        if (process.state() == QProcess::NotRunning)
+            break;                         // it ended between two checks
+        waited += 200;
+        if (cancelToken().requested()) {
+            process.kill();
+            process.waitForFinished(2000);
+            break;                         // runChecked reports the cancellation
+        }
+        if (waited >= timeoutMs) {
+            result.timedOut = true;
+            process.kill();
+            process.waitForFinished(2000);
+            break;
+        }
     }
     result.exitCode = process.exitCode();
     result.out = QString::fromUtf8(process.readAllStandardOutput());
@@ -51,6 +64,7 @@ CommandResult CommandRunner::runChecked(const QString& program, const QStringLis
                                         const QByteArray& input, const QString& workDir)
 {
     const CommandResult result = run(program, args, timeoutMs, input, workDir);
+    throwIfCancelled();
     if (!result.ok())
         throw OperationError(analyzer::classify(program, result));
     return result;
@@ -69,6 +83,7 @@ CommandResult CommandRunner::runPowerShell(const QString& script, int timeoutMs)
 CommandResult CommandRunner::runPowerShellChecked(const QString& script, int timeoutMs)
 {
     const CommandResult result = runPowerShell(script, timeoutMs);
+    throwIfCancelled();
     if (!result.ok())
         throw OperationError(analyzer::classify(QStringLiteral("powershell.exe"), result));
     return result;

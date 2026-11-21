@@ -45,6 +45,7 @@ $AppDir          = Join-Path $env:ProgramData 'SecurityDNS'
 $BackupDir       = Join-Path $AppDir 'backup'
 $BackupFile      = Join-Path $BackupDir 'pre-install.json'
 $StateFile       = Join-Path $AppDir 'state.json'
+$SettingsFile    = Join-Path $AppDir 'settings.json'
 $WgTunnelName    = 'security-dns'
 $WgExe           = Join-Path $env:ProgramFiles 'WireGuard\wireguard.exe'
 $WarpCli         = Join-Path $env:ProgramFiles 'Cloudflare\Cloudflare WARP\warp-cli.exe'
@@ -86,13 +87,20 @@ function Get-StateValue([string]$Key) {
     return $null
 }
 
+# Written next to the target and renamed, so a crash never leaves half a file.
+function Write-FileAtomic([string]$Path, [string]$Text) {
+    $temp = "$Path.tmp"
+    Set-Content -LiteralPath $temp -Value $Text -Encoding UTF8
+    Move-Item -LiteralPath $temp -Destination $Path -Force
+}
+
 function Set-StateValue([string]$Key, $Value) {
     New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
     $state = Read-State
     $table = [ordered]@{}
     foreach ($prop in $state.PSObject.Properties) { $table[$prop.Name] = $prop.Value }
     $table[$Key] = $Value
-    $table | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+    Write-FileAtomic $StateFile ($table | ConvertTo-Json -Depth 6)
 }
 
 function Update-WinInet {
@@ -161,7 +169,20 @@ function Restore-DohSettings($Backup) {
         return
     }
 
-    foreach ($address in $CloudflareAddrs) {
+    # Remove every DoH entry this app may have registered: the Cloudflare defaults plus any DNS
+    # servers you configured yourself.
+    $addresses = @($CloudflareAddrs)
+    if (Test-Path -LiteralPath $SettingsFile) {
+        try {
+            $custom = Get-Content -LiteralPath $SettingsFile -Raw | ConvertFrom-Json
+            if ($custom.PSObject.Properties['DNS_SERVERS']) {
+                foreach ($item in ([string]$custom.DNS_SERVERS -split '\s+')) {
+                    if ($item -match '^[0-9A-Fa-f:.]+$') { $addresses += $item }
+                }
+            }
+        } catch { }
+    }
+    foreach ($address in ($addresses | Select-Object -Unique)) {
         Remove-DnsClientDohServerAddress -ServerAddress $address -ErrorAction SilentlyContinue
     }
 
@@ -232,6 +253,7 @@ function Invoke-RestoreOnly {
 
     Set-StateValue 'MODE' 'R'
     Set-StateValue 'DNS_RESTORED' $true
+    Set-StateValue 'PROXY_MANAGED' $false
 
     Write-Host ''
     Write-Good 'Original settings restored. The app, dependencies, and shortcuts are still installed.'

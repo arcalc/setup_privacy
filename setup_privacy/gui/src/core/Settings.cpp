@@ -7,6 +7,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QSaveFile>
 
 namespace sdns {
 
@@ -17,6 +19,7 @@ QString statePath() { return platform::dataDir() + QStringLiteral("/state.json")
 
 QJsonObject readJson(const QString& path)
 {
+    platform::ensureDataDir();   // lock the folder down before reading anything from it
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return {};
@@ -25,12 +28,15 @@ QJsonObject readJson(const QString& path)
 
 void writeJson(const QString& path, const QJsonObject& object)
 {
-    QDir().mkpath(platform::dataDir());
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    platform::ensureDataDir();
+    // QSaveFile writes to a temporary file and renames it, so a crash or power loss can never leave
+    // half a file. This matters because state.json holds the only copy of your original settings.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
         return;
     file.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
     file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    file.commit();
 }
 
 } // namespace
@@ -72,10 +78,33 @@ Settings Settings::load()
 
     const QJsonArray servers = o.value(QStringLiteral("dnsServers")).toArray();
     if (!servers.isEmpty()) {
-        s.dnsServers.clear();
-        for (const QJsonValue& v : servers)
-            s.dnsServers << v.toString();
+        QStringList valid;
+        static const QRegularExpression serverRe(QStringLiteral("^[0-9A-Fa-f:.]+(#[A-Za-z0-9.-]+)?$"));
+        for (const QJsonValue& v : servers) {
+            if (serverRe.match(v.toString()).hasMatch())
+                valid << v.toString();
+        }
+        if (!valid.isEmpty())
+            s.dnsServers = valid;   // anything invalid in a hand-edited file is ignored
     }
+
+    // Clamp or reset anything out of range, so a hand-edited file can never cause surprises.
+    s.spoofPort = qBound(1, s.spoofPort, 65535);
+    s.networkTimeoutSec = qBound(5, s.networkTimeoutSec, 300);
+    static const QStringList styles = {QStringLiteral("auto"), QStringLiteral("listen"), QStringLiteral("config"),
+                                       QStringLiteral("flags"), QStringLiteral("port"), QStringLiteral("none")};
+    if (!styles.contains(s.spoofArgStyle))
+        s.spoofArgStyle = QStringLiteral("auto");
+    if (s.theme != QLatin1String("dark") && s.theme != QLatin1String("light"))
+        s.theme = QStringLiteral("dark");
+    if (s.language != QLatin1String("en") && s.language != QLatin1String("ar"))
+        s.language = QStringLiteral("en");
+    static const QRegularExpression safeArgs(QStringLiteral("^[A-Za-z0-9 ._=:/@,+-]*$"));
+    if (!safeArgs.match(s.spoofExtraArgs).hasMatch())
+        s.spoofExtraArgs.clear();
+    static const QRegularExpression endpointRe(QStringLiteral("^[\\[\\]A-Za-z0-9._:-]+:\\d{1,5}$"));
+    if (!s.wgEndpoint.isEmpty() && !endpointRe.match(s.wgEndpoint).hasMatch())
+        s.wgEndpoint.clear();
     return s;
 }
 

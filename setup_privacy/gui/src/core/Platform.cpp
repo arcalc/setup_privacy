@@ -1,8 +1,10 @@
 #include "Platform.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 #ifdef Q_OS_WIN
@@ -46,8 +48,10 @@ bool relaunchElevated()
     const QStringList names = {QStringLiteral("DISPLAY"), QStringLiteral("XAUTHORITY"),
                                QStringLiteral("WAYLAND_DISPLAY"), QStringLiteral("XDG_RUNTIME_DIR"),
                                QStringLiteral("XDG_SESSION_TYPE"), QStringLiteral("QT_QPA_PLATFORM")};
+    // Only plain values are passed on to the process that will run with administrator rights.
+    static const QRegularExpression safeValue(QStringLiteral("^[A-Za-z0-9_./:@+-]*$"));
     for (const QString& name : names) {
-        if (env.contains(name))
+        if (env.contains(name) && safeValue.match(env.value(name)).hasMatch())
             args << name + QLatin1Char('=') + env.value(name);
     }
     args << exe;
@@ -65,6 +69,40 @@ QString dataDir()
 }
 
 QString binDir() { return dataDir() + QStringLiteral("/bin"); }
+
+#ifdef Q_OS_WIN
+namespace {
+void runHidden(const QString& program, const QStringList& args)
+{
+    QProcess process;
+    process.setProgram(program);
+    process.setArguments(args);
+    process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* a) { a->flags |= CREATE_NO_WINDOW; });
+    process.start();
+    process.waitForFinished(60000);
+}
+} // namespace
+#endif
+
+void ensureDataDir()
+{
+    static bool done = false;
+    if (done)
+        return;
+    QDir().mkpath(dataDir());
+    QDir().mkpath(binDir());
+    if (!isElevated())
+        return;      // only an administrator can (and needs to) change the permissions
+#ifdef Q_OS_WIN
+    runHidden(QStringLiteral("icacls.exe"), {dataDir(), QStringLiteral("/setowner"), QStringLiteral("*S-1-5-32-544"), QStringLiteral("/T"), QStringLiteral("/C")});
+    runHidden(QStringLiteral("icacls.exe"), {dataDir(), QStringLiteral("/inheritance:r"), QStringLiteral("/grant:r"),
+                                             QStringLiteral("*S-1-5-18:(OI)(CI)F"), QStringLiteral("*S-1-5-32-544:(OI)(CI)F"),
+                                             QStringLiteral("/T"), QStringLiteral("/C")});
+    // Users may read the bin folder because the autostart launcher runs SpoofDPI as the signed-in user.
+    runHidden(QStringLiteral("icacls.exe"), {binDir(), QStringLiteral("/grant"), QStringLiteral("*S-1-5-32-545:(OI)(CI)RX"), QStringLiteral("/C")});
+#endif
+    done = true;
+}
 
 QString exeSuffix()
 {

@@ -21,7 +21,7 @@
 #include <QVBoxLayout>
 
 #ifndef APP_VERSION
-#define APP_VERSION "3.0.0"
+#define APP_VERSION "3.1.1"
 #endif
 
 namespace sdns {
@@ -69,6 +69,7 @@ MainWindow::MainWindow(const Settings& settings, QWidget* parent) : QMainWindow(
     applyTheme();
 
     m_thread.start();
+    callEngine([this]() { m_engine->clearStaleProxy(); });
     callEngine([this]() { m_engine->refreshStatus(); });
 }
 
@@ -197,7 +198,10 @@ QWidget* MainWindow::buildDashboard()
     layout->addStretch(1);
 
     // Kill switch is instant: no confirmation, no recovery dialogs.
-    connect(m_killButton, &QPushButton::clicked, this, [this]() { callEngine([this]() { m_engine->killSwitch(); }); });
+    connect(m_killButton, &QPushButton::clicked, this, [this]() {
+        cancelToken().request();   // stop whatever is running right now, without waiting for it
+        callEngine([this]() { m_engine->killSwitch(); });
+    });
     connect(m_restoreButton, &QPushButton::clicked, this, [this]() {
         if (confirmYesNo(QStringLiteral("confirm.restore")))
             callEngine([this]() { m_engine->restoreOriginal(); });

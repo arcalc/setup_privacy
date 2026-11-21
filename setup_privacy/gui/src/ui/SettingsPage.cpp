@@ -34,7 +34,7 @@ SettingsPage::SettingsPage(QWidget* parent) : QWidget(parent)
     addRow(form, QStringLiteral("spoofPort"), m_spoofPort);
 
     m_argStyle = new QComboBox;
-    m_argStyle->addItems({QStringLiteral("auto"), QStringLiteral("config"), QStringLiteral("flags"),
+    m_argStyle->addItems({QStringLiteral("auto"), QStringLiteral("listen"), QStringLiteral("config"), QStringLiteral("flags"),
                           QStringLiteral("port"), QStringLiteral("none")});
     addRow(form, QStringLiteral("spoofArgStyle"), m_argStyle);
 
@@ -211,8 +211,9 @@ bool SettingsPage::validate(QString* errorKey) const
     const QString ep = m_wgEndpoint->text().trimmed();
     if (!ep.isEmpty() && !endpoint.match(ep).hasMatch()) { *errorKey = QStringLiteral("wgEndpoint"); return false; }
 
-    static const QRegularExpression shellChars(QStringLiteral("[;&|$`<>]"));
-    if (shellChars.match(m_extraArgs->text()).hasMatch()) { *errorKey = QStringLiteral("spoofExtraArgs"); return false; }
+    // Allow-list: letters, digits, space and . _ = : / @ , + - only (no quotes, %, $, ; & or |).
+    static const QRegularExpression safeArgs(QStringLiteral("^[A-Za-z0-9 ._=:/@,+-]*$"));
+    if (!safeArgs.match(m_extraArgs->text()).hasMatch()) { *errorKey = QStringLiteral("spoofExtraArgs"); return false; }
 
     if (m_token->text().contains(QRegularExpression(QStringLiteral("\\s")))) { *errorKey = QStringLiteral("githubToken"); return false; }
     return true;

@@ -77,8 +77,8 @@
  "problem.unsupported_flag.fix": "I will switch to a different option style (config file, flags, port only, or none) and retry.",
  "problem.missing_resolvconf.title": "resolvconf is missing",
  "problem.missing_resolvconf.explain": "WireGuard needs the resolvconf tool to set DNS, and it is not installed.",
- "problem.missing_resolvconf.fix": "I will install resolvconf (openresolv on Arch, Fedora, and openSUSE) with your package manager.",
- "problem.missing_resolvconf.alt": "Let this app handle DNS instead (recommended)",
+ "problem.missing_resolvconf.fix": "I will let this app handle DNS (no extra package needed) and retry.",
+ "problem.missing_resolvconf.alt": "Install resolvconf with your package manager instead",
  "problem.missing_tool.title": "A required program is missing",
  "problem.missing_tool.explain": "A program this operation needs is not installed: {tool}",
  "problem.missing_tool.fix": "I will install it with your package manager and retry.",
@@ -112,7 +112,7 @@
  "settings.spoofPort.label": "SpoofDPI port",
  "settings.spoofPort.help": "Port on this computer where SpoofDPI listens (default 8080). If it is busy, a free port is chosen for you.",
  "settings.spoofArgStyle.label": "SpoofDPI argument style",
- "settings.spoofArgStyle.help": "How start options are passed. Auto reads the installed build help; config, flags, port, or none force one style.",
+ "settings.spoofArgStyle.help": "How start options are passed. Auto reads the installed build help; listen, config, flags, port, or none force one style.",
  "settings.spoofExtraArgs.label": "SpoofDPI extra arguments",
  "settings.spoofExtraArgs.help": "Added to the SpoofDPI command line. For advanced users.",
  "settings.dnsServers.label": "DNS servers",
@@ -175,5 +175,8 @@
  "elevation.title": "Administrator rights needed",
  "elevation.text": "Security DNS changes DNS, proxy, and network settings, so it needs administrator rights. Relaunch now with administrator rights?",
  "elevation.relaunch": "Relaunch as administrator",
- "elevation.continue": "Continue without"
+ "elevation.continue": "Continue without",
+ "log.dns_flags_missing": "This SpoofDPI build has no DNS option this app knows, so it may look up names with its own plaintext DNS instead of your encrypted DNS. Run a DNS leak test.",
+ "log.stale_proxy": "The system proxy was set by this app, but SpoofDPI is not running (for example after a reboot). Clearing it so your internet keeps working.",
+ "log.proxy_no_autostart": "Note: autostart is off. After a reboot SpoofDPI will not run but the proxy setting stays. Enable autostart in the Tool Manager, or use the kill switch."
 }

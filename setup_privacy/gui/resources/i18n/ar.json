@@ -77,8 +77,8 @@
  "problem.unsupported_flag.fix": "سأنتقل إلى نمط خيارات مختلف (ملف إعداد أو خيارات أو منفذ فقط أو بدون) وأعيد المحاولة.",
  "problem.missing_resolvconf.title": "أداة resolvconf غير موجودة",
  "problem.missing_resolvconf.explain": "يحتاج WireGuard إلى أداة resolvconf لضبط DNS وهي غير مثبّتة.",
- "problem.missing_resolvconf.fix": "سأثبّت resolvconf (أو openresolv على Arch وFedora وopenSUSE) عبر مدير الحزم.",
- "problem.missing_resolvconf.alt": "دع التطبيق يتولى DNS بدلاً من ذلك (موصى به)",
+ "problem.missing_resolvconf.fix": "سأدع التطبيق يتولى DNS (دون حاجة لحزمة إضافية) وأعيد المحاولة.",
+ "problem.missing_resolvconf.alt": "ثبّت resolvconf عبر مدير الحزم بدلاً من ذلك",
  "problem.missing_tool.title": "برنامج مطلوب غير موجود",
  "problem.missing_tool.explain": "برنامج تحتاجه هذه العملية غير مثبّت: {tool}",
  "problem.missing_tool.fix": "سأثبّته عبر مدير الحزم وأعيد المحاولة.",
@@ -112,7 +112,7 @@
  "settings.spoofPort.label": "منفذ SpoofDPI",
  "settings.spoofPort.help": "المنفذ الذي يستمع عليه SpoofDPI على هذا الجهاز (الافتراضي 8080). إن كان مشغولاً يُختار منفذ حر تلقائياً.",
  "settings.spoofArgStyle.label": "نمط خيارات SpoofDPI",
- "settings.spoofArgStyle.help": "كيف تُمرَّر خيارات التشغيل. وضع auto يقرأ مساعدة الإصدار المثبّت؛ وconfig وflags وport وnone تفرض نمطاً واحداً.",
+ "settings.spoofArgStyle.help": "كيف تُمرَّر خيارات التشغيل. وضع auto يقرأ مساعدة الإصدار المثبّت؛ وlisten وconfig وflags وport وnone تفرض نمطاً واحداً.",
  "settings.spoofExtraArgs.label": "خيارات إضافية لـ SpoofDPI",
  "settings.spoofExtraArgs.help": "تُضاف إلى سطر أوامر SpoofDPI. للمتقدمين.",
  "settings.dnsServers.label": "خوادم DNS",
@@ -175,5 +175,8 @@
  "elevation.title": "مطلوب صلاحيات المسؤول",
  "elevation.text": "يغيّر Security DNS إعدادات DNS والوكيل والشبكة، لذلك يحتاج إلى صلاحيات المسؤول. هل تريد إعادة التشغيل الآن بصلاحيات المسؤول؟",
  "elevation.relaunch": "إعادة التشغيل كمسؤول",
- "elevation.continue": "المتابعة بدون"
+ "elevation.continue": "المتابعة بدون",
+ "log.dns_flags_missing": "لا يحتوي هذا الإصدار من SpoofDPI على خيار DNS يعرفه التطبيق، فقد يبحث عن الأسماء بخادم DNS الخاص به غير المشفّر بدل DNS المشفّر لديك. شغّل اختبار تسرب DNS.",
+ "log.stale_proxy": "تم ضبط وكيل النظام بواسطة هذا التطبيق لكن SpoofDPI لا يعمل (مثلاً بعد إعادة التشغيل). جارٍ مسحه لتبقى الإنترنت تعمل.",
+ "log.proxy_no_autostart": "ملاحظة: البدء التلقائي معطّل. بعد إعادة التشغيل لن يعمل SpoofDPI لكن إعداد الوكيل سيبقى. فعّل البدء التلقائي من مدير الأدوات، أو استخدم مفتاح الإيقاف الطارئ."
 }

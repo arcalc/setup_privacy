@@ -10,7 +10,7 @@
 #include <QPushButton>
 
 #ifndef APP_VERSION
-#define APP_VERSION "3.0.0"
+#define APP_VERSION "3.1.1"
 #endif
 
 int main(int argc, char* argv[])

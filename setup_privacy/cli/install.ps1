@@ -42,11 +42,13 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# The progress bar makes Invoke-WebRequest downloads many times slower in Windows PowerShell.
+$ProgressPreference = 'SilentlyContinue'
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-$ScriptVersion  = '3.0.0'
+$ScriptVersion  = '3.1.1'
 $RepoRaw        = 'https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli'
 $PortfolioUrl   = 'https://arcalc.github.io/arcalc/'
 $ContactEmail   = 'thearcalc@protonmail.com'
@@ -68,7 +70,7 @@ $SpoofExe       = Join-Path $BinDir 'spoofdpi.exe'
 $WgcfExe        = Join-Path $BinDir 'wgcf.exe'
 $WgTunnelName   = 'security-dns'
 $WgExe          = Join-Path $env:ProgramFiles 'WireGuard\wireguard.exe'
-$WarpCli        = Join-Path $env:ProgramFiles 'Cloudflare\Cloudflare WARP\warp-cli.exe'
+$WarpCliDefault = Join-Path $env:ProgramFiles 'Cloudflare\Cloudflare WARP\warp-cli.exe'
 $WarpMsiUrl     = 'https://downloads.cloudflareclient.com/v1/download/windows/ga'
 $StartupScript  = Join-Path ([Environment]::GetFolderPath('Startup')) 'security-dns.vbs'
 $StartMenuDir   = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
@@ -77,9 +79,11 @@ $ProxyKey       = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Sett
 $MinDohBuild    = 19041
 $Script:Lang    = 'en'
 $Script:SkipSystemDns = $false
+$Script:SpoofHelpKey = ''
+$Script:SpoofHelpText = ''
 
 $SettingKeys = @('SPOOF_PORT', 'DNS_SERVERS', 'DOH_TEMPLATE', 'WG_ENDPOINT', 'SPOOF_ARG_STYLE',
-    'SPOOF_EXTRA_FLAGS', 'SPOOF_PATH', 'WGCF_PATH', 'NET_TIMEOUT', 'GITHUB_TOKEN')
+    'SPOOF_EXTRA_FLAGS', 'MANAGE_PROXY', 'SPOOF_PATH', 'WGCF_PATH', 'WARP_CLI_PATH', 'NET_TIMEOUT', 'GITHUB_TOKEN')
 
 $SettingDefault = @{
     SPOOF_PORT        = '8080'
@@ -88,8 +92,10 @@ $SettingDefault = @{
     WG_ENDPOINT       = ''
     SPOOF_ARG_STYLE   = 'auto'
     SPOOF_EXTRA_FLAGS = ''
+    MANAGE_PROXY      = '1'
     SPOOF_PATH        = ''
     WGCF_PATH         = ''
+    WARP_CLI_PATH     = ''
     NET_TIMEOUT       = '30'
     GITHUB_TOKEN      = ''
 }
@@ -159,12 +165,17 @@ $Messages = @{
         set_DNS_SERVERS = 'DNS servers - encrypted DNS server addresses used for every lookup, space separated (default: Cloudflare IPv4 and IPv6).'
         set_DOH_TEMPLATE = 'DoH template - the DNS-over-HTTPS address your DNS servers use (default: the Cloudflare address). Must match your DNS servers.'
         set_WG_ENDPOINT = 'WireGuard endpoint - replaces the server address (host:port) in the WireGuard profile. Empty keeps the Cloudflare default.'
-        set_SPOOF_ARG_STYLE = 'SpoofDPI argument style - auto, config, flags, port or none. Auto reads the installed build help.'
+        set_SPOOF_ARG_STYLE = 'SpoofDPI argument style - auto, listen, config, flags, port or none. Auto reads the installed build help.'
         set_SPOOF_EXTRA_FLAGS = 'SpoofDPI extra flags - added to the SpoofDPI command line. Advanced.'
         set_SPOOF_PATH = 'SpoofDPI program path - use your own program instead of the downloaded one. Empty = managed copy.'
         set_WGCF_PATH = 'wgcf program path - use your own wgcf program. Empty = managed copy.'
         set_NET_TIMEOUT = 'Network timeout - seconds to wait for connections (5-300, default 30).'
         set_GITHUB_TOKEN = 'GitHub token - optional, avoids GitHub download rate limits. Stored only on this computer.'
+        set_MANAGE_PROXY = 'System proxy - 1 = point the system proxy at SpoofDPI while it runs, 0 = leave your proxy settings alone.'
+        set_WARP_CLI_PATH = 'warp-cli program path - use a specific warp-cli. Empty = find it automatically.'
+        dns_flags_missing = 'Warning: this SpoofDPI build has no DNS option this app knows, so it may look up names with its own plaintext DNS instead of your encrypted DNS. Run a DNS leak test.'
+        stale_proxy = 'The system proxy was set by this app, but SpoofDPI is not running (for example after signing out). Clearing it so your internet keeps working.'
+        proxy_no_autostart = 'Note: autostart is off. After you sign out SpoofDPI will not run but the proxy setting stays. Enable autostart in the Tool Manager, or use the kill switch.'
         set_current = 'current'
         set_prompt = 'New value (empty keeps it, a single - clears it)'
         set_saved = 'Saved.'
@@ -283,12 +294,17 @@ $Messages = @{
         set_DNS_SERVERS = 'خوادم DNS - عناوين خوادم DNS المشفّرة لكل الاستعلامات، مفصولة بمسافة (الافتراضي: Cloudflare IPv4 وIPv6).'
         set_DOH_TEMPLATE = 'قالب DoH - عنوان DNS عبر HTTPS الذي تستخدمه خوادمك (الافتراضي: عنوان Cloudflare). يجب أن يطابق خوادم DNS.'
         set_WG_ENDPOINT = 'نقطة اتصال WireGuard - تستبدل عنوان الخادم (host:port) في ملف WireGuard. الفارغ يبقي افتراضي Cloudflare.'
-        set_SPOOF_ARG_STYLE = 'نمط خيارات SpoofDPI - auto أو config أو flags أو port أو none. وضع auto يقرأ --help للإصدار المثبّت.'
+        set_SPOOF_ARG_STYLE = 'نمط خيارات SpoofDPI - auto أو listen أو config أو flags أو port أو none. وضع auto يقرأ مساعدة الإصدار المثبّت.'
         set_SPOOF_EXTRA_FLAGS = 'خيارات إضافية لـ SpoofDPI - تُضاف إلى سطر أوامر SpoofDPI. للمتقدمين.'
         set_SPOOF_PATH = 'مسار برنامج SpoofDPI - استخدم برنامجك بدل المنزّل. الفارغ = النسخة المُدارة.'
         set_WGCF_PATH = 'مسار برنامج wgcf - استخدم برنامج wgcf الخاص بك. الفارغ = النسخة المُدارة.'
         set_NET_TIMEOUT = 'مهلة الشبكة - ثوانٍ لانتظار الاتصالات (5-300، الافتراضي 30).'
         set_GITHUB_TOKEN = 'رمز GitHub - اختياري، يتجنب حدود التنزيل من GitHub. يُحفظ على هذا الجهاز فقط.'
+        set_MANAGE_PROXY = 'وكيل النظام - 1 = وجّه وكيل النظام إلى SpoofDPI أثناء تشغيله، 0 = اترك إعدادات الوكيل كما هي.'
+        set_WARP_CLI_PATH = 'مسار برنامج warp-cli - استخدم warp-cli محدداً. الفارغ = يُعثر عليه تلقائياً.'
+        dns_flags_missing = 'تحذير: لا يحتوي هذا الإصدار من SpoofDPI على خيار DNS يعرفه التطبيق، فقد يبحث عن الأسماء بخادم DNS الخاص به غير المشفّر بدل DNS المشفّر لديك. شغّل اختبار تسرب DNS.'
+        stale_proxy = 'تم ضبط وكيل النظام بواسطة هذا التطبيق لكن SpoofDPI لا يعمل (مثلاً بعد تسجيل الخروج). جارٍ مسحه لتبقى الإنترنت تعمل.'
+        proxy_no_autostart = 'ملاحظة: البدء التلقائي معطّل. بعد تسجيل الخروج لن يعمل SpoofDPI لكن إعداد الوكيل سيبقى. فعّل البدء التلقائي من مدير الأدوات، أو استخدم مفتاح الإيقاف الطارئ.'
         set_current = 'الحالي'
         set_prompt = 'القيمة الجديدة (الفارغ يبقيها، وعلامة - وحدها تمسحها)'
         set_saved = 'تم الحفظ.'
@@ -409,7 +425,7 @@ function Set-StateValue([string]$Key, $Value) {
     $table = [ordered]@{}
     foreach ($prop in $state.PSObject.Properties) { $table[$prop.Name] = $prop.Value }
     $table[$Key] = $Value
-    $table | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+    Write-FileAtomic $StateFile ($table | ConvertTo-Json -Depth 6)
 }
 
 function Get-RegistryValue([string]$Path, [string]$Name) {
@@ -510,12 +526,12 @@ function Save-PreInstallState {
         Doh     = $doh
         Startup = [pscustomobject]@{ Existed = $startupExisted }
     }
-    $state | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $BackupFile -Encoding UTF8
+    Write-FileAtomic $BackupFile ($state | ConvertTo-Json -Depth 6)
     Write-Good "Original settings backed up to $BackupFile"
 }
 
 function Get-SpoofDpiRelease {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$SpoofDpiRepo/releases/latest" -Headers (Get-GitHubHeaders)
+    $release = Invoke-RestMethod -TimeoutSec ([int](Get-Setting 'NET_TIMEOUT')) -Uri "https://api.github.com/repos/$SpoofDpiRepo/releases/latest" -Headers (Get-GitHubHeaders)
     $assets  = @($release.assets)
 
     $bin = $assets |
@@ -527,7 +543,6 @@ function Get-SpoofDpiRelease {
     $sums = $assets |
         Where-Object { $_.name -match 'sha256|checksum' -and $_.name -notmatch 'linux|darwin|macos|arm' } |
         Select-Object -First 1
-
     $sumsUrl = $null
     if ($sums) { $sumsUrl = $sums.browser_download_url }
 
@@ -536,23 +551,23 @@ function Get-SpoofDpiRelease {
         Name    = $bin.name
         Url     = $bin.browser_download_url
         SumsUrl = $sumsUrl
+        Digest  = Get-AssetDigest $bin
     }
 }
 
+# Returns $false (without failing) when the checksum file cannot be parsed.
 function Test-FileSha256([string]$File, [string]$SumsFile, [string]$Name) {
     $lines = @(Get-Content -LiteralPath $SumsFile | Where-Object { $_.Trim() })
     $line  = $lines | Where-Object { $_ -match [regex]::Escape($Name) } | Select-Object -First 1
-    if (-not $line -and $lines.Count -gt 0) { $line = $lines[0] }
-
+    # A file that lists many assets must name ours; only a file holding one bare hash may be used as is.
+    if (-not $line -and $lines.Count -eq 1) { $line = $lines[0] }
     $expected = ([string]$line -split '\s+')[0]
     if ($expected -notmatch '^[0-9a-fA-F]{64}$') {
-        Write-Caution 'Checksum file could not be parsed; skipping verification.'
-        return
+        Write-Caution 'Checksum file could not be parsed.'
+        return $false
     }
-
-    $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash
-    if ($actual -ne $expected.ToUpperInvariant()) { throw "SHA-256 mismatch for $Name. Refusing to install." }
-    Write-Good 'SHA-256 checksum verified.'
+    Assert-Sha256 $File $expected
+    return $true
 }
 
 function Install-SpoofDpiBinary {
@@ -562,19 +577,12 @@ function Install-SpoofDpiBinary {
         return
     }
 
-    $tmp = Join-Path $env:TEMP ('sdns-' + [guid]::NewGuid().ToString('N'))
+    $tmp = Join-Path (Get-WorkDir) ('sdns-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         $file = Join-Path $tmp $release.Name
-        Invoke-WebRequest -Uri $release.Url -OutFile $file -UseBasicParsing
-
-        if ($release.SumsUrl) {
-            $sumsFile = Join-Path $tmp 'checksums.txt'
-            Invoke-WebRequest -Uri $release.SumsUrl -OutFile $sumsFile -UseBasicParsing
-            Test-FileSha256 -File $file -SumsFile $sumsFile -Name $release.Name
-        } else {
-            Write-Caution 'No checksum published for this release; integrity was not verified.'
-        }
+        Get-WebFile $release.Url $file
+        Confirm-Download -File $file -Name $release.Name -Digest $release.Digest -SumsUrl $release.SumsUrl
 
         if ($file -like '*.zip') {
             $extract = Join-Path $tmp 'extract'
@@ -618,12 +626,13 @@ function Disable-SystemProxy {
 }
 
 function Install-WarpClient {
-    if (Test-Path -LiteralPath $WarpCli) {
+    if (Test-Path -LiteralPath (Get-WarpCliPath)) {
         Write-Good 'Cloudflare WARP client is already installed; it will be left in place on uninstall.'
     } else {
-        $msi = Join-Path $env:TEMP ('warp-' + [guid]::NewGuid().ToString('N') + '.msi')
+        $msi = Join-Path (Get-WorkDir) ('warp-' + [guid]::NewGuid().ToString('N') + '.msi')
         try {
-            Invoke-WebRequest -Uri $WarpMsiUrl -OutFile $msi -UseBasicParsing
+            Get-WebFile $WarpMsiUrl $msi
+            Assert-SignedBy -Path $msi -Publisher 'Cloudflare'
             Set-StateValue 'WARP_MSI_ADDED' $true
             Invoke-MsiexecInstall -MsiPath $msi
         }
@@ -634,33 +643,39 @@ function Install-WarpClient {
         Write-Good 'Cloudflare WARP client installed.'
     }
 
-    if (-not (Test-Path -LiteralPath $WarpCli)) { throw 'warp-cli.exe was not found after installation.' }
+    if (-not (Test-Path -LiteralPath (Get-WarpCliPath))) { throw 'warp-cli.exe was not found after installation.' }
 
     Start-Sleep -Seconds 3
-    & $WarpCli --accept-tos registration show *> $null
+    & (Get-WarpCliPath) --accept-tos registration show *> $null
     if ($LASTEXITCODE -ne 0) {
-        & $WarpCli --accept-tos registration new *> $null
-        if ($LASTEXITCODE -ne 0) { throw 'Could not register the WARP client.' }
-        Set-StateValue 'WARP_REGISTERED_BY_US' $true
+        # Newer clients use "registration new", older ones "register". Failure here is not fatal:
+        # "connect" reports the real problem if the client is still unregistered.
+        & (Get-WarpCliPath) --accept-tos registration new *> $null
+        if ($LASTEXITCODE -ne 0) { & (Get-WarpCliPath) --accept-tos register *> $null }
+        if ($LASTEXITCODE -eq 0) { Set-StateValue 'WARP_REGISTERED_BY_US' $true }
+        else { Write-Caution 'WARP registration did not complete; the connection step will report any problem.' }
     }
 }
 
 function Disconnect-Warp {
-    if (Test-Path -LiteralPath $WarpCli) {
-        & $WarpCli --accept-tos disconnect *> $null
+    if (Test-Path -LiteralPath (Get-WarpCliPath)) {
+        & (Get-WarpCliPath) --accept-tos disconnect *> $null
     }
 }
 
 function Install-WireGuardClient {
     if (Test-Path -LiteralPath $WgExe) { return }
 
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$WireGuardRepo/releases/latest" -Headers (Get-GitHubHeaders)
+    $release = Invoke-RestMethod -TimeoutSec ([int](Get-Setting 'NET_TIMEOUT')) -Uri "https://api.github.com/repos/$WireGuardRepo/releases/latest" -Headers (Get-GitHubHeaders)
     $asset = @($release.assets) | Where-Object { $_.name -match '^wireguard-amd64-.*\.msi$' } | Select-Object -First 1
     if (-not $asset) { throw 'No WireGuard MSI asset was found in the latest release.' }
 
-    $msi = Join-Path $env:TEMP $asset.name
+    $msi = Join-Path (Get-WorkDir) $asset.name
     try {
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $msi -UseBasicParsing
+        Get-WebFile $asset.browser_download_url $msi
+        $digest = Get-AssetDigest $asset
+        if ($digest -match '^sha256:([0-9a-fA-F]{64})$') { Assert-Sha256 $msi $Matches[1] }
+        Assert-SignedBy -Path $msi -Publisher 'WireGuard'
         Set-StateValue 'WG_CLIENT_ADDED' $true
         Invoke-MsiexecInstall -MsiPath $msi
     }
@@ -672,7 +687,7 @@ function Install-WireGuardClient {
 }
 
 function Install-Wgcf {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$WgcfRepo/releases/latest" -Headers (Get-GitHubHeaders)
+    $release = Invoke-RestMethod -TimeoutSec ([int](Get-Setting 'NET_TIMEOUT')) -Uri "https://api.github.com/repos/$WgcfRepo/releases/latest" -Headers (Get-GitHubHeaders)
     $tag = [string]$release.tag_name
 
     if ((Test-Path -LiteralPath $WgcfExe) -and ((Get-StateValue 'WGCF_TAG') -eq $tag)) {
@@ -680,12 +695,24 @@ function Install-Wgcf {
         return
     }
 
-    $asset = @($release.assets) | Where-Object { $_.name -match 'windows_amd64\.exe$' } | Select-Object -First 1
+    $assets = @($release.assets)
+    $asset = $assets | Where-Object { $_.name -match 'windows_amd64\.exe$' } | Select-Object -First 1
     if (-not $asset) { throw "No windows_amd64 wgcf asset found in release $tag." }
+    $sums = $assets | Where-Object { $_.name -match 'checksums\.txt$' } | Select-Object -First 1
+    $sumsUrl = $null
+    if ($sums) { $sumsUrl = $sums.browser_download_url }
 
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
     if (-not (Test-Path -LiteralPath $WgcfExe)) { Set-StateValue 'WGCF_EXE_ADDED' $true }
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $WgcfExe -UseBasicParsing
+    $download = Join-Path (Get-WorkDir) ('wgcf-' + [guid]::NewGuid().ToString('N') + '.exe')
+    try {
+        Get-WebFile $asset.browser_download_url $download
+        Confirm-Download -File $download -Name $asset.name -Digest (Get-AssetDigest $asset) -SumsUrl $sumsUrl
+        Move-Item -LiteralPath $download -Destination $WgcfExe -Force
+    }
+    finally {
+        Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue
+    }
     Set-StateValue 'WGCF_TAG' $tag
     Write-Good "Installed wgcf $tag"
 }
@@ -754,9 +781,13 @@ function Read-Settings {
     return $table
 }
 
+# Returns the stored value when it is valid, otherwise the default, so a hand-edited
+# settings file can never inject anything.
 function Get-Setting([string]$Key) {
     $settings = Read-Settings
-    if ($settings.ContainsKey($Key)) { return [string]$settings[$Key] }
+    if ($settings.ContainsKey($Key) -and (Test-SettingValid $Key ([string]$settings[$Key]))) {
+        return [string]$settings[$Key]
+    }
     return [string]$SettingDefault[$Key]
 }
 
@@ -764,27 +795,113 @@ function Set-Setting([string]$Key, [string]$Value) {
     New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
     $settings = Read-Settings
     $settings[$Key] = $Value
-    ($settings | ConvertTo-Json) | Set-Content -LiteralPath $SettingsFile -Encoding UTF8
+    Write-FileAtomic $SettingsFile ($settings | ConvertTo-Json)
 }
 
 function Test-SettingValid([string]$Key, [string]$Value) {
     switch ($Key) {
-        'SPOOF_PORT'   { return ($Value -match '^\d+$') -and ([int]$Value -ge 1) -and ([int]$Value -le 65535) }
+        'SPOOF_PORT'   { return ($Value -match '^\d{1,5}$') -and ([int]$Value -ge 1) -and ([int]$Value -le 65535) }
         'DNS_SERVERS'  {
             if (-not $Value.Trim()) { return $false }
             foreach ($item in ($Value.Trim() -split '\s+')) { if ($item -notmatch '^[0-9A-Fa-f:.]+$') { return $false } }
             return $true
         }
-        'DOH_TEMPLATE' { return ($Value -match '^https://\S+$') }
+        'DOH_TEMPLATE' { return ($Value -match '^https://[^\s<>|\x22\x27`]+$') }
         'WG_ENDPOINT'  { return ($Value -eq '') -or ($Value -match '^[\[\]A-Za-z0-9._:-]+:\d{1,5}$') }
-        'SPOOF_ARG_STYLE'   { return ($Value -match '^(auto|config|flags|port|none)$') }
-        'SPOOF_EXTRA_FLAGS' { return ($Value -notmatch '[;&|$`<>]') }
-        'SPOOF_PATH'   { return ($Value -eq '') -or (Test-Path -LiteralPath $Value -PathType Leaf) }
-        'WGCF_PATH'    { return ($Value -eq '') -or (Test-Path -LiteralPath $Value -PathType Leaf) }
-        'NET_TIMEOUT'  { return ($Value -match '^\d+$') -and ([int]$Value -ge 5) -and ([int]$Value -le 300) }
-        'GITHUB_TOKEN' { return ($Value -notmatch '\s') }
+        'MANAGE_PROXY' { return ($Value -match '^[01]$') }
+        'SPOOF_ARG_STYLE'   { return ($Value -match '^(auto|listen|config|flags|port|none)$') }
+        # Allow-list: letters, digits, space and . _ = : / @ , + - only (no quotes, %, $, ; & or |).
+        'SPOOF_EXTRA_FLAGS' { return ($Value -match '^[A-Za-z0-9 ._=:/@,+-]*$') }
+        { $_ -in @('SPOOF_PATH', 'WGCF_PATH', 'WARP_CLI_PATH') } {
+            return ($Value -eq '') -or (($Value -match '^[A-Za-z]:\\[^"<>|?*]+$') -and (Test-Path -LiteralPath $Value -PathType Leaf))
+        }
+        'NET_TIMEOUT'  { return ($Value -match '^\d{1,3}$') -and ([int]$Value -ge 5) -and ([int]$Value -le 300) }
+        'GITHUB_TOKEN' { return ($Value -match '^[A-Za-z0-9_-]*$') }
     }
     return $false
+}
+
+# The app folder holds backups, a GitHub token, and programs that run as administrator, so only
+# Administrators and SYSTEM may change it. Without this, a standard user could pre-create the folder
+# and plant a settings file that makes the elevated app run their program. The bin folder stays
+# readable (not writable) for users because the autostart launcher runs SpoofDPI as the signed-in user.
+function Initialize-AppDir {
+    New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+    $null = & icacls.exe $AppDir /setowner '*S-1-5-32-544' /T /C 2>&1
+    $null = & icacls.exe $AppDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C 2>&1
+    $null = & icacls.exe $BinDir /grant '*S-1-5-32-545:(OI)(CI)RX' /C 2>&1
+}
+
+# Downloads are kept inside the protected app folder, never in the user-writable %TEMP%, so
+# another process cannot swap a file between the checks and the moment it is run as administrator.
+function Get-WorkDir {
+    $dir = Join-Path $AppDir 'tmp'
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    return $dir
+}
+
+function Get-WebFile([string]$Uri, [string]$OutFile) {
+    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec ([int](Get-Setting 'NET_TIMEOUT'))
+}
+
+function Get-AssetDigest($Asset) {
+    if ($Asset.PSObject.Properties['digest']) { return [string]$Asset.digest }
+    return ''
+}
+
+function Get-WarpCliPath {
+    $custom = Get-Setting 'WARP_CLI_PATH'
+    if ($custom) { return $custom }
+    return $WarpCliDefault
+}
+
+function Assert-Sha256([string]$File, [string]$Expected) {
+    $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash
+    if ($actual -ne $Expected.ToUpperInvariant()) {
+        throw "SHA-256 mismatch for $([IO.Path]::GetFileName($File)). Refusing to install (checksum error)."
+    }
+    Write-Good 'SHA-256 checksum verified.'
+}
+
+# Verifies a download with the release checksum file, or else GitHub's published digest.
+function Confirm-Download([string]$File, [string]$Name, [string]$Digest, [string]$SumsUrl) {
+    if ($SumsUrl) {
+        $sumsFile = Join-Path (Get-WorkDir) ([guid]::NewGuid().ToString('N') + '.txt')
+        try {
+            Get-WebFile $SumsUrl $sumsFile
+            if (Test-FileSha256 -File $File -SumsFile $sumsFile -Name $Name) { return }
+        }
+        finally { Remove-Item -LiteralPath $sumsFile -Force -ErrorAction SilentlyContinue }
+    }
+    if ($Digest -match '^sha256:([0-9a-fA-F]{64})$') { Assert-Sha256 $File $Matches[1]; return }
+    Write-Caution "No checksum or digest is published for $Name; integrity was not verified."
+}
+
+# MSI installers run as SYSTEM, so check the publisher's Authenticode signature first.
+function Assert-SignedBy([string]$Path, [string]$Publisher) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch [regex]::Escape($Publisher)) {
+        throw "The downloaded file is not signed by $Publisher (signature status: $($signature.Status)). Refusing to install (checksum error)."
+    }
+    Write-Good "Signature verified: $Publisher"
+}
+
+# Written next to the target and renamed, so a crash or power loss never leaves half a file.
+# This matters because the backup file holds the only copy of your original settings.
+function Write-FileAtomic([string]$Path, [string]$Text) {
+    $temp = "$Path.tmp"
+    Set-Content -LiteralPath $temp -Value $Text -Encoding UTF8
+    Move-Item -LiteralPath $temp -Destination $Path -Force
+}
+
+# If this app set the system proxy but SpoofDPI is no longer running (a sign-out with autostart off, or a
+# crash), every app that uses the proxy would fail. Clear it, and only it, so the internet keeps working.
+function Clear-StaleProxy {
+    if (((Get-StateValue 'PROXY_MANAGED') -eq $true) -and -not (Test-SpoofRunning)) {
+        Write-Caution (T 'stale_proxy')
+        Clear-ManagedProxy
+    }
 }
 
 function Get-GitHubHeaders {
@@ -883,11 +1000,14 @@ function Invoke-Fix([string]$Kind, [string]$Details) {
 }
 
 # Runs an operation with smart recovery. Returns $true when it finally succeeds.
+# Runs an operation with smart recovery. Returns $true when it finally succeeds.
+# The operation's output is discarded on purpose: in PowerShell any value a function emits becomes
+# part of its return value, which would turn a failure into a truthy array.
 function Invoke-Guarded([scriptblock]$Operation) {
     $tried = @{}
     while ($true) {
         try {
-            & $Operation
+            $null = & $Operation
             return $true
         }
         catch {
@@ -938,11 +1058,12 @@ function Set-SecureDns {
 }
 
 # Backs up the original settings once, and makes sure encrypted DNS is applied.
+# Backs up the original settings once, and makes sure encrypted DNS is applied.
 function Initialize-System {
     Save-PreInstallState
     if (((Get-StateValue 'DNS_RESTORED') -eq $true) -or (-not (Get-StateValue 'DNS_APPLIED'))) {
-        $applied = Set-SecureDns
-        Set-StateValue 'DNS_APPLIED' ([bool]$applied)
+        $applied = [bool](@(Set-SecureDns) | Select-Object -Last 1)
+        Set-StateValue 'DNS_APPLIED' $applied
         Set-StateValue 'DNS_RESTORED' $false
     }
 }
@@ -962,19 +1083,6 @@ function Test-SpoofRunning {
 }
 function Test-SpoofEnabled { return (Test-Path -LiteralPath $StartupScript) }
 
-function Get-SpoofStyle {
-    $style = Get-Setting 'SPOOF_ARG_STYLE'
-    if ($style -ne 'auto') { return $style }
-    $help = ''
-    try {
-        $ErrorActionPreference = 'Continue'
-        $help = (& (Get-SpoofExePath) '--help' 2>&1 | ForEach-Object { "$_" }) -join ' '
-    } catch { $help = '' }
-    if ($help -match '(^|\s)-config(\s|=|$)') { return 'config' }
-    if (($help -match '(^|\s)-addr(\s|=|$)') -and ($help -match '(^|\s)-port(\s|=|$)')) { return 'flags' }
-    if ($help -match '(^|\s)-port(\s|=|$)') { return 'port' }
-    return 'none'
-}
 
 # Builds without a port option are fixed to 8080.
 function Get-SpoofPort {
@@ -982,17 +1090,90 @@ function Get-SpoofPort {
     return [int](Get-Setting 'SPOOF_PORT')
 }
 
+function Test-HelpFlag([string]$Help, [string]$Flag) {
+    # Both spellings matter: older builds print "-addr", newer ones print "--listen-addr".
+    return [regex]::IsMatch($Help, ('(?m)(^|[^\w-])--?' + [regex]::Escape($Flag) + '([^\w-]|$)'))
+}
+
+# Runs "spoofdpi --help" with a time limit and returns what it printed.
+function Invoke-HelpProbe([string]$Exe) {
+    $info = New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName = $Exe
+    $info.Arguments = '--help'
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $proc = [System.Diagnostics.Process]::Start($info)
+    $out = $proc.StandardOutput.ReadToEndAsync()
+    $err = $proc.StandardError.ReadToEndAsync()
+    if (-not $proc.WaitForExit(8000)) { try { $proc.Kill() } catch { } }
+    return ($out.Result + "`n" + $err.Result)
+}
+
+# The installed build's own help text, cached until the program changes.
+function Get-SpoofHelp {
+    $exe = Get-SpoofExePath
+    $stamp = 0
+    if (Test-Path -LiteralPath $exe) { $stamp = (Get-Item -LiteralPath $exe).LastWriteTimeUtc.Ticks }
+    $key = "$exe|$stamp"
+    if ($Script:SpoofHelpKey -ne $key) {
+        $text = ''
+        try { $text = Invoke-HelpProbe $exe } catch { $text = '' }
+        $Script:SpoofHelpText = $text
+        $Script:SpoofHelpKey = $key
+    }
+    return $Script:SpoofHelpText
+}
+
+function Get-SpoofStyle {
+    $style = Get-Setting 'SPOOF_ARG_STYLE'
+    if ($style -ne 'auto') { return $style }
+    $help = Get-SpoofHelp
+    if (Test-HelpFlag $help 'listen-addr') { return 'listen' }
+    if (Test-HelpFlag $help 'config') { return 'config' }
+    if ((Test-HelpFlag $help 'addr') -and (Test-HelpFlag $help 'port')) { return 'flags' }
+    if (Test-HelpFlag $help 'port') { return 'port' }
+    return 'none'
+}
+
+# SpoofDPI looks up website names itself. Left alone it uses plaintext DNS (UDP to 8.8.8.8 by
+# default), which would show every site name to your ISP. This warns when no safe option exists.
+function Test-SpoofDnsOptions {
+    $help = Get-SpoofHelp
+    if (-not (Test-HelpFlag $help 'dns-mode') -and -not (Test-HelpFlag $help 'enable-doh')) {
+        Write-Caution (T 'dns_flags_missing')
+    }
+}
+
 function Get-SpoofDpiArgs([int]$Port) {
+    $style = Get-SpoofStyle
+    $help  = Get-SpoofHelp
     $parts = @()
-    switch (Get-SpoofStyle) {
+    switch ($style) {
+        'listen' { $parts += "--listen-addr 127.0.0.1:$Port" }
         'config' {
-            $configFile = Join-Path $AppDir 'spoofdpi.toml'
-            Set-Content -LiteralPath $configFile -Value "[app]`r`nlisten-addr = `"127.0.0.1:$Port`"`r`n" -Encoding ASCII
+            # The config file lives in the bin folder: readable by the autostart launcher, writable only by administrators.
+            $configFile = Join-Path $BinDir 'spoofdpi.toml'
+            $toml = "[app]`r`nlisten-addr = `"127.0.0.1:$Port`"`r`n"
+            if (Test-HelpFlag $help 'dns-mode') { $toml += "`r`n[dns]`r`nmode = `"system`"`r`n" }
+            Set-Content -LiteralPath $configFile -Value $toml -Encoding ASCII
             $parts += "--config `"$configFile`""
         }
         'flags' { $parts += "--addr 127.0.0.1 --port $Port" }
         'port'  { $parts += "--port $Port" }
         default { }
+    }
+    # DNS: make the proxy resolve names through the encrypted system resolver.
+    if ($style -ne 'config') {
+        if (Test-HelpFlag $help 'dns-mode') { $parts += '--dns-mode system' }
+        elseif (Test-HelpFlag $help 'enable-doh') { $parts += '--enable-doh --dns-addr 1.1.1.1' }
+    }
+    # No console exists for a hidden process, so switch the text interface off where the build has one.
+    if (Test-HelpFlag $help 'no-tui') { $parts += '--no-tui=true' }
+    elseif (Test-HelpFlag $help 'silent') { $parts += '--silent' }
+    foreach ($name in @('system-proxy', 'set-system-proxy')) {
+        if (Test-HelpFlag $help $name) { $parts += "--$name=false" }
     }
     $extra = Get-Setting 'SPOOF_EXTRA_FLAGS'
     if ($extra) { $parts += $extra }
@@ -1028,6 +1209,7 @@ shell.Run """$exe"" $argsVbs", 0, False
 function Start-SpoofTool {
     if (-not (Test-SpoofInstalled)) { throw 'spoofdpi: program not found (not installed)' }
     Initialize-System
+    Test-SpoofDnsOptions
     Stop-SpoofProcess
     $port = Get-SpoofPort
     if (Test-PortInUse $port) {
@@ -1057,7 +1239,11 @@ function Start-SpoofTool {
         if ($proc.HasExited) { break }
         if (Test-PortInUse $port) {
             Write-Good ((T 'start_ok') -f $port)
-            Set-SystemProxy -Port $port
+            if ((Get-Setting 'MANAGE_PROXY') -eq '1') {
+                Set-SystemProxy -Port $port
+                Set-StateValue 'PROXY_MANAGED' $true
+                if (-not (Test-SpoofEnabled)) { Write-Caution (T 'proxy_no_autostart') }
+            }
             return
         }
         Start-Sleep -Milliseconds 750
@@ -1071,7 +1257,15 @@ function Start-SpoofTool {
     throw "SpoofDPI did not start. $logText"
 }
 
-function Stop-SpoofTool { Disable-SystemProxy; Stop-SpoofProcess }
+# Only undo the proxy settings this app made, never your own.
+function Clear-ManagedProxy {
+    if ((Get-StateValue 'PROXY_MANAGED') -eq $true) {
+        Disable-SystemProxy
+        Set-StateValue 'PROXY_MANAGED' $false
+    }
+}
+
+function Stop-SpoofTool { Clear-ManagedProxy; Stop-SpoofProcess }
 function Enable-SpoofTool {
     if (-not (Test-SpoofInstalled)) { throw 'spoofdpi: program not found (not installed)' }
     Install-StartupLauncher -Port (Get-SpoofPort)
@@ -1082,10 +1276,10 @@ function Uninstall-SpoofTool { Stop-SpoofTool; Invoke-RemoveTool 'spoofdpi' }
 # -----------------------------------------------------------------------------
 # Tool 2: Cloudflare WARP
 # -----------------------------------------------------------------------------
-function Test-WarpInstalled { return (Test-Path -LiteralPath $WarpCli) }
+function Test-WarpInstalled { return (Test-Path -LiteralPath (Get-WarpCliPath)) }
 function Test-WarpRunning {
     if (-not (Test-WarpInstalled)) { return $false }
-    $status = (& $WarpCli --accept-tos status 2>$null) -join ' '
+    $status = (& (Get-WarpCliPath) --accept-tos status 2>$null) -join ' '
     return ($status -match 'Status update:\s*Connected')
 }
 function Test-WarpEnabled {
@@ -1098,7 +1292,7 @@ function Start-WarpTool {
     if (Test-WgRunning) { throw 'CONFLICT:wireguard - WireGuard is running; WARP cannot start at the same time.' }
     Initialize-System
     Install-WarpClient
-    & $WarpCli --accept-tos connect *> $null
+    & (Get-WarpCliPath) --accept-tos connect *> $null
     for ($i = 0; $i -lt 20; $i++) {
         if (Test-WarpRunning) { Write-Good 'Cloudflare WARP is connected.'; return }
         Start-Sleep -Seconds 1
@@ -1142,7 +1336,9 @@ function Update-WgConf {
     $source = Join-Path $WgcfDir 'wgcf-profile.conf'
     if (-not (Test-Path -LiteralPath $source)) { throw "WireGuard profile is missing: $source" }
     $endpoint = Get-Setting 'WG_ENDPOINT'
-    $lines = @(Get-Content -LiteralPath $source)
+    # wireguard.exe ignores script lines unless a registry flag is set, but the profile comes from
+    # Cloudflare's API through wgcf and never needs them, so they are removed rather than trusted.
+    $lines = @(Get-Content -LiteralPath $source | Where-Object { $_ -notmatch '^\s*(PreUp|PostUp|PreDown|PostDown|SaveConfig)\s*=' })
     if ($endpoint) {
         $lines = @($lines | ForEach-Object { if ($_ -match '^\s*Endpoint\s*=') { "Endpoint = $endpoint" } else { $_ } })
     }
@@ -1233,18 +1429,19 @@ function Confirm-Tunnel {
 function Invoke-KillSwitch {
     Write-Step (T 'kill_start')
     $failed = $false
-    foreach ($operation in @({ Disable-SystemProxy }, { Stop-WgTool }, { Stop-WarpTool }, { Stop-SpoofProcess })) {
+    foreach ($operation in @({ Clear-ManagedProxy }, { Stop-WgTool }, { Stop-WarpTool }, { Stop-SpoofProcess })) {
         try { & $operation } catch { $failed = $true; Write-Caution $_.Exception.Message }
     }
     if ((Test-SpoofRunning) -or (Test-WarpRunning) -or (Test-WgRunning)) { $failed = $true }
+    # Backs up your settings first if this is the very first action, then keeps encrypted DNS on.
     try { Initialize-System } catch { $failed = $true; Write-Caution $_.Exception.Message }
     if ($failed) { Write-Caution (T 'kill_partial') } else { Write-Good (T 'kill_done') }
 }
 
 function Get-UninstallScript {
     if (Test-Path -LiteralPath $AppUninstall) { return $AppUninstall }
-    $remote = Join-Path $env:TEMP 'security-dns-uninstall.ps1'
-    Invoke-WebRequest -Uri "$RepoRaw/uninstall.ps1" -OutFile $remote -UseBasicParsing
+    $remote = Join-Path (Get-WorkDir) 'security-dns-uninstall.ps1'
+    Get-WebFile "$RepoRaw/uninstall.ps1" $remote
     return $remote
 }
 
@@ -1306,8 +1503,12 @@ function Invoke-UpdateCheck {
 
     if (Test-SpoofInstalled) {
         Write-Step 'SpoofDPI'
+        $before = [string](Get-StateValue 'SPOOFDPI_TAG')
         $wasRunning = Test-SpoofRunning
-        if ((Invoke-Guarded { Install-Spoof }) -and $wasRunning) { [void](Invoke-Guarded { Start-SpoofTool }) }
+        # Restart only when a newer version was really installed.
+        if ((Invoke-Guarded { Install-Spoof }) -and $wasRunning -and ([string](Get-StateValue 'SPOOFDPI_TAG') -ne $before)) {
+            [void](Invoke-Guarded { Start-SpoofTool })
+        }
     }
     if ((Test-Path -LiteralPath (Get-WgcfPath)) -and -not (Get-Setting 'WGCF_PATH')) {
         Write-Step 'wgcf'
@@ -1437,6 +1638,7 @@ function Show-ToolManager {
 }
 
 function Show-MainMenu {
+    Clear-StaleProxy
     while ($true) {
         Write-Host ''
         Write-Host ((T 'menu_head') -f $ScriptVersion) -ForegroundColor Cyan
@@ -1471,6 +1673,8 @@ function Show-MainMenu {
 if ($Version) { Write-Host $ScriptVersion; return }
 
 if (-not (Test-Administrator)) { throw $Messages.en.need_admin }
+
+Initialize-AppDir
 
 if ($Kill)    { $Script:Lang = 'en'; Invoke-KillSwitch; return }
 if ($Restore) { $Script:Lang = 'en'; & (Get-UninstallScript) -RestoreOnly; return }

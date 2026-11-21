@@ -24,6 +24,9 @@ public:
     // must show the dialog (it may block) and return the user's choice.
     void setProblemHandler(std::function<FixChoice(const Problem&)> handler);
 
+    // Safe to call from any thread: asks the running operation to stop as soon as possible.
+    void requestCancel() { cancelToken().request(); }
+
 public slots:
     void applyPreset(int mode);                        // 1 SpoofDPI, 2 WARP, 3 WireGuard
     void performToolAction(int tool, int action);      // Tool / ToolAction values
@@ -32,6 +35,7 @@ public slots:
     void installMissing();
     void updateTools();
     void refreshStatus();
+    void clearStaleProxy();                            // proxy set by this app but SpoofDPI no longer runs
     void updateSettings(const sdns::Settings& settings);
 
 signals:

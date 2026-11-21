@@ -10,6 +10,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTimer>
 
 namespace sdns {
 
@@ -55,7 +56,15 @@ QByteArray HttpClient::fetch(const QUrl& url, const QString& destinationFile)
 
     QEventLoop loop;
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    QTimer cancelTimer;
+    cancelTimer.setInterval(200);
+    QObject::connect(&cancelTimer, &QTimer::timeout, &loop, [&]() {
+        if (cancelToken().requested())
+            reply->abort();     // the kill switch must not wait for a download
+    });
+    cancelTimer.start();
     loop.exec();
+    cancelTimer.stop();
 
     QByteArray body;
     if (destinationFile.isEmpty())
@@ -63,6 +72,13 @@ QByteArray HttpClient::fetch(const QUrl& url, const QString& destinationFile)
     else {
         file.write(reply->readAll());
         file.close();
+    }
+
+    if (cancelToken().requested()) {
+        reply->deleteLater();
+        if (!destinationFile.isEmpty())
+            QFile::remove(destinationFile);   // never leave a partial download behind
+        throw OperationCancelled();
     }
 
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -100,6 +116,7 @@ ReleaseInfo HttpClient::latestRelease(const QString& ownerRepo)
         ReleaseAsset asset;
         asset.name = a.value(QStringLiteral("name")).toString();
         asset.url = QUrl(a.value(QStringLiteral("browser_download_url")).toString());
+        asset.digest = a.value(QStringLiteral("digest")).toString();
         info.assets.append(asset);
     }
     if (info.tag.isEmpty())

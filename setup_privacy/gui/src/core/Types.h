@@ -2,8 +2,10 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QThread>
 #include <QVariantMap>
 
+#include <atomic>
 #include <stdexcept>
 #include <utility>
 
@@ -74,6 +76,40 @@ class OperationCancelled : public std::runtime_error {
 public:
     OperationCancelled() : std::runtime_error("cancelled") {}
 };
+
+// Lets the window interrupt a running operation, so the kill switch is instant even while a long
+// download or install is in progress. One flag is enough because only one operation runs at a time.
+class CancelToken {
+public:
+    void request() { m_requested.store(true); }
+    void reset() { m_requested.store(false); }
+    bool requested() const { return m_requested.load(); }
+
+private:
+    std::atomic<bool> m_requested{false};
+};
+
+inline CancelToken& cancelToken()
+{
+    static CancelToken token;
+    return token;
+}
+
+inline void throwIfCancelled()
+{
+    if (cancelToken().requested())
+        throw OperationCancelled();
+}
+
+// Sleeps in short steps so a cancel request is noticed within a fraction of a second.
+inline void interruptibleSleep(int milliseconds)
+{
+    for (int waited = 0; waited < milliseconds; waited += 100) {
+        throwIfCancelled();
+        QThread::msleep(100);
+    }
+    throwIfCancelled();
+}
 
 struct ToolStatus {
     bool installed = false;

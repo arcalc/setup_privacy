@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HttpClient.h"
 #include "Settings.h"
 #include "Types.h"
 
@@ -36,6 +37,9 @@ private:
 
     // SpoofDPI
     QString spoofBin() const;
+    QString spoofHelp();
+    void warnIfNoDnsOption();
+    void verifyDownload(HttpClient& http, const ReleaseInfo& release, const ReleaseAsset& asset, const QString& file);
     QString spoofStyle();
     QStringList spoofArgs(int port);
     ToolStatus spoofStatus();
@@ -74,6 +78,8 @@ private:
 
     const Settings& m_s;
     LogFn m_log;
+    QString m_helpKey;    // identifies the program the cached help text came from
+    QString m_helpText;
 };
 
 } // namespace sdns

@@ -10,6 +10,7 @@ namespace sdns {
 struct ReleaseAsset {
     QString name;
     QUrl url;
+    QString digest;   // "sha256:<hex>" published by GitHub, when available
 };
 
 struct ReleaseInfo {

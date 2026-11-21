@@ -125,12 +125,16 @@ FixOutcome Engine::applyFix(const Problem& problem, bool alternate)
     }
     case ProblemKind::MissingResolvconf:
         if (alternate) {
-            m_settings.wgStripDns = true;   // let this app handle DNS, so resolvconf is not needed
-            saveAndNotify();
-        } else {
-            m_tools.installPackages({platform::packageManager() == QLatin1String("apt") ? QStringLiteral("resolvconf")
-                                                                                          : QStringLiteral("openresolv")});
+            // Optional. apt never removes packages (--no-remove), and Arch gets the systemd shim,
+            // because openresolv would conflict with systemd-resolved.
+            const QString pm = platform::packageManager();
+            m_tools.installPackages({pm == QLatin1String("apt") ? QStringLiteral("resolvconf")
+                                     : (pm == QLatin1String("pacman") ? QStringLiteral("systemd-resolvconf")
+                                                                      : QStringLiteral("openresolv"))});
             m_sys.enableEncryptedDns(m_skipSystemDns);   // installing resolvconf can replace /etc/resolv.conf
+        } else {
+            m_settings.wgStripDns = true;   // safe default: this app handles DNS, no package changes
+            saveAndNotify();
         }
         break;
     case ProblemKind::MissingTool: {
@@ -161,11 +165,11 @@ FixOutcome Engine::applyFix(const Problem& problem, bool alternate)
     case ProblemKind::NetworkTimeout:
         m_settings.networkTimeoutSec = qMin(120, m_settings.networkTimeoutSec * 2);
         saveAndNotify();
-        QThread::sleep(3);
+        interruptibleSleep(3000);
         break;
     case ProblemKind::RateLimited:
         emit logLine(T(QStringLiteral("log.waiting_30")));
-        QThread::sleep(30);
+        interruptibleSleep(30000);
         break;
     case ProblemKind::ResolvedMissing:
         if (platform::packageManager() != QLatin1String("pacman")) {
@@ -197,6 +201,7 @@ FixOutcome Engine::applyFix(const Problem& problem, bool alternate)
 
 bool Engine::runOperation(const QString& label, const std::function<void()>& body, bool withRecovery)
 {
+    cancelToken().reset();   // a cancel request belongs to the operation that was running before
     emit busyChanged(true);
     emit logLine(QStringLiteral("== ") + label);
 
@@ -258,6 +263,8 @@ void Engine::startTool(Tool tool)
     if (tool == Tool::SpoofDpi && m_settings.manageSystemProxy) {
         m_sys.enableProxy(m_tools.spoofEffectivePort());
         StateStore::set(QStringLiteral("proxyManaged"), true);
+        if (!m_tools.status(Tool::SpoofDpi).enabled)
+            emit logLine(T(QStringLiteral("log.proxy_no_autostart")));
     }
 }
 
@@ -339,13 +346,15 @@ void Engine::killSwitch()
     runOperation(T(QStringLiteral("op.kill")), [this]() {
         QStringList failures;
         stopEverything(&failures);
+        // Back up your settings first if this is the very first action, then keep encrypted DNS on.
+        const bool savedSkip = m_skipSystemDns;
+        m_skipSystemDns = true;   // an old Windows build must not turn the kill switch into a failure
         try {
-            m_sys.enableEncryptedDns(true);
-            StateStore::set(QStringLiteral("dnsApplied"), true);
-            StateStore::set(QStringLiteral("dnsRestored"), false);
+            ensurePrepared();
         } catch (const OperationError& error) {
             failures << QStringLiteral("DNS: %1").arg(error.problem.detail.trimmed());
         }
+        m_skipSystemDns = savedSkip;
         for (Tool tool : {Tool::SpoofDpi, Tool::Warp, Tool::WireGuard}) {
             if (m_tools.status(tool).running)
                 failures << QStringLiteral("%1 is still running").arg(toolName(tool));
@@ -392,6 +401,21 @@ void Engine::updateTools()
         }
         emit logLine(T(QStringLiteral("log.warp_self_update")));
     }, true);
+}
+
+// If this app set the system proxy but SpoofDPI is no longer running (a reboot with autostart off, or
+// a crash), every app that uses the proxy would fail. Clear it, and only it, so the internet keeps working.
+void Engine::clearStaleProxy()
+{
+    if (!StateStore::flag(QStringLiteral("proxyManaged")) || m_tools.status(Tool::SpoofDpi).running)
+        return;
+    try {
+        m_sys.disableProxy();
+        StateStore::set(QStringLiteral("proxyManaged"), false);
+        emit logLine(T(QStringLiteral("log.stale_proxy")));
+    } catch (const std::exception&) {
+        // Not allowed without administrator rights; the status screen shows the problem.
+    }
 }
 
 void Engine::refreshStatus()

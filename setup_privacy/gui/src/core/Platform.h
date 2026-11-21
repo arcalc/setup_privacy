@@ -17,6 +17,11 @@ QString dataDir();
 QString binDir();
 QString exeSuffix();
 
+// Creates the data folder and, on Windows, limits it to Administrators and SYSTEM. Without this a
+// standard user could pre-create the folder and plant a settings file that makes the elevated app
+// run their program. Safe to call often; it only does the work once per run.
+void ensureDataDir();
+
 // Finds a program in PATH and in the usual system folders. Empty when missing.
 QString findTool(const QString& name);
 

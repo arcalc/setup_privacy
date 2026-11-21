@@ -18,8 +18,9 @@ Palette paletteFor(bool dark)
     if (dark)
         return {QStringLiteral("#121212"), QStringLiteral("#121212"), QStringLiteral("#E0E0E0"),
                 QStringLiteral("#B0B0B0"), QStringLiteral("#444444"), QStringLiteral("#888888")};
-    return {QStringLiteral("#FBF6DC"), QStringLiteral("#F3EBC8"), QStringLiteral("#8C6D1F"),
-            QStringLiteral("#9C6B17"), QStringLiteral("#CDBE86"), QStringLiteral("#8C6D1F")};
+    // Gold and amber, darkened slightly so text on the cream background reaches a 4.5:1 contrast ratio.
+    return {QStringLiteral("#FBF6DC"), QStringLiteral("#F3EBC8"), QStringLiteral("#7A5C14"),
+            QStringLiteral("#86590E"), QStringLiteral("#CDBE86"), QStringLiteral("#7A5C14")};
 }
 
 } // namespace
@@ -68,6 +69,6 @@ QMessageBox, QDialog { background: %BG%; }
     return css;
 }
 
-QString linkColor(bool dark) { return paletteFor(dark).accent == QLatin1String("#888888") ? QStringLiteral("#E0E0E0") : QStringLiteral("#8C6D1F"); }
+QString linkColor(bool dark) { return paletteFor(dark).accent == QLatin1String("#888888") ? QStringLiteral("#E0E0E0") : QStringLiteral("#7A5C14"); }
 
 } // namespace sdns::theme

@@ -3,6 +3,7 @@
 #include "CommandRunner.h"
 #include "HttpClient.h"
 #include "Platform.h"
+#include "Translator.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -115,18 +116,8 @@ QString findChecksumUrl(const ReleaseInfo& release, QUrl* url)
     return QString();
 }
 
-void verifyChecksum(const QString& file, const QString& assetName, const QString& sumsText)
+void checkSha256(const QString& file, const QString& expected, const QString& assetName)
 {
-    QString expected;
-    const QStringList lines = sumsText.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    for (const QString& line : lines) {
-        if (line.contains(assetName)) { expected = line.split(QRegularExpression(QStringLiteral("\\s+"))).value(0); break; }
-    }
-    if (expected.isEmpty() && !lines.isEmpty())
-        expected = lines.first().split(QRegularExpression(QStringLiteral("\\s+"))).value(0);
-    static const QRegularExpression hex(QStringLiteral("^[0-9a-fA-F]{64}$"));
-    if (!hex.match(expected).hasMatch())
-        return; // checksum file in an unknown format: skip verification
     QFile f(file);
     if (!f.open(QIODevice::ReadOnly))
         fail(ProblemKind::Unknown, QStringLiteral("Cannot read %1 to verify its checksum").arg(file));
@@ -134,6 +125,28 @@ void verifyChecksum(const QString& file, const QString& assetName, const QString
     hash.addData(&f);
     if (QString::fromLatin1(hash.result().toHex()).compare(expected, Qt::CaseInsensitive) != 0)
         fail(ProblemKind::ChecksumMismatch, QStringLiteral("SHA-256 mismatch for %1").arg(assetName));
+}
+
+// True when the checksum file listed this asset and the file matched. A file that lists many assets
+// must name ours; the only exception is a file holding a single hash with no name.
+bool verifyChecksum(const QString& file, const QString& assetName, const QString& sumsText)
+{
+    QString expected;
+    const QStringList lines = sumsText.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    const QRegularExpression space(QStringLiteral("\\s+"));
+    for (const QString& line : lines) {
+        if (line.contains(assetName)) {
+            expected = line.trimmed().split(space).value(0);
+            break;
+        }
+    }
+    if (expected.isEmpty() && lines.size() == 1)
+        expected = lines.first().trimmed().split(space).value(0);
+    static const QRegularExpression hex(QStringLiteral("^[0-9a-fA-F]{64}$"));
+    if (!hex.match(expected).hasMatch())
+        return false;
+    checkSha256(file, expected, assetName);
+    return true;
 }
 
 void writeFile(const QString& path, const QByteArray& data, QFileDevice::Permissions perms = {})
@@ -154,10 +167,56 @@ QFileDevice::Permissions executablePerms()
            | QFileDevice::ExeGroup | QFileDevice::ReadOther | QFileDevice::ExeOther;
 }
 
-QString quoteArg(const QString& a)
+// Quotes one argument for a systemd unit file. systemd treats %, $ and backslash specially,
+// so each is escaped; values that reach this point were already checked against an allow-list.
+QString systemdQuote(const QString& a)
 {
-    return a.contains(QLatin1Char(' ')) ? QStringLiteral("\"%1\"").arg(a) : a;
+    QString s = a;
+    s.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    s.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    s.replace(QLatin1Char('%'), QStringLiteral("%%"));
+    s.replace(QLatin1Char('$'), QStringLiteral("$$"));
+    return QStringLiteral("\"%1\"").arg(s);
 }
+
+// True when the help text lists --name or -name. Both spellings matter: older builds print
+// "-addr", newer ones print "--listen-addr".
+bool helpHasFlag(const QString& help, const QString& flag)
+{
+    const QRegularExpression re(QStringLiteral("(?m)(^|[^\\w-])--?%1([^\\w-]|$)").arg(QRegularExpression::escape(flag)));
+    return re.match(help).hasMatch();
+}
+
+// Letters, digits, space and . _ = : / @ , + - only. No quotes, %, $, ; & or |.
+bool safeArgText(const QString& text)
+{
+    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9 ._=:/@,+-]*$"));
+    return re.match(text).hasMatch();
+}
+
+// Downloads are kept inside the protected data folder, never in a user-writable temp folder, so
+// another process cannot swap a file between the checks and the moment it is run with high rights.
+QString tempTemplate()
+{
+    platform::ensureDataDir();
+    QDir().mkpath(platform::dataDir() + QStringLiteral("/tmp"));
+    return platform::dataDir() + QStringLiteral("/tmp/dl-XXXXXX");
+}
+
+#ifdef Q_OS_WIN
+// MSI installers run as SYSTEM, so the publisher's Authenticode signature is checked first.
+void assertSignedBy(const QString& path, const QString& publisher)
+{
+    QString p = path;
+    p.replace(QLatin1Char('\''), QStringLiteral("''"));
+    const CommandResult r = CommandRunner::runPowerShell(
+        QStringLiteral("$s = Get-AuthenticodeSignature -LiteralPath '%1'; if ($s.Status -eq 'Valid') { $s.SignerCertificate.Subject } else { 'INVALID:' + $s.Status }").arg(p));
+    const QString out = r.out.trimmed();
+    if (!r.ok() || out.startsWith(QLatin1String("INVALID")) || !out.contains(publisher, Qt::CaseInsensitive))
+        fail(ProblemKind::ChecksumMismatch,
+             QStringLiteral("The downloaded file is not signed by %1 (%2). Refusing to install (checksum error).").arg(publisher, out));
+}
+#endif
 
 #ifdef Q_OS_WIN
 QString findProductCode(const QString& namePrefix)
@@ -222,6 +281,7 @@ ToolStatus ToolManager::status(Tool tool)
 
 void ToolManager::perform(Tool tool, ToolAction action)
 {
+    throwIfCancelled();
     using A = ToolAction;
     switch (tool) {
     case Tool::SpoofDpi:
@@ -267,7 +327,7 @@ void ToolManager::installPackages(const QStringList& packages)
         CommandRunner::run(QStringLiteral("env"), {QStringLiteral("DEBIAN_FRONTEND=noninteractive"),
                            QStringLiteral("apt-get"), QStringLiteral("update"), QStringLiteral("-qq")}, 300000);
         QStringList args = {QStringLiteral("DEBIAN_FRONTEND=noninteractive"), QStringLiteral("apt-get"),
-                            QStringLiteral("install"), QStringLiteral("-y"), QStringLiteral("-qq")};
+                            QStringLiteral("install"), QStringLiteral("-y"), QStringLiteral("-qq"), QStringLiteral("--no-remove")};
         CommandRunner::runChecked(QStringLiteral("env"), args + packages, 900000);
     } else if (pm == QLatin1String("dnf")) {
         CommandRunner::runChecked(QStringLiteral("dnf"), QStringList{QStringLiteral("install"), QStringLiteral("-y"), QStringLiteral("-q")} + packages, 900000);
@@ -303,19 +363,29 @@ QString ToolManager::spoofBin() const
     return platform::binDir() + QStringLiteral("/spoofdpi") + platform::exeSuffix();
 }
 
+// The installed build's own --help text, cached until the program changes.
+QString ToolManager::spoofHelp()
+{
+    const QFileInfo info(spoofBin());
+    const QString key = info.absoluteFilePath() + QLatin1Char('|') + QString::number(info.lastModified().toSecsSinceEpoch());
+    if (key != m_helpKey) {
+        m_helpText = CommandRunner::run(spoofBin(), {QStringLiteral("--help")}, 8000).combined();
+        m_helpKey = key;
+    }
+    return m_helpText;
+}
+
 // Reads --help to learn how this build takes its address and port:
-// config, flags, port, or none (a fixed port 8080).
+// listen, config, flags, port, or none (a fixed port 8080).
 QString ToolManager::spoofStyle()
 {
     if (m_s.spoofArgStyle != QLatin1String("auto"))
         return m_s.spoofArgStyle;
-    const QString help = CommandRunner::run(spoofBin(), {QStringLiteral("--help")}, 8000).combined();
-    auto has = [&help](const char* flag) {
-        return QRegularExpression(QStringLiteral("(?m)(^|\\s)%1([\\s=]|$)").arg(QString::fromLatin1(flag))).match(help).hasMatch();
-    };
-    if (has("-config")) return QStringLiteral("config");
-    if (has("-addr") && has("-port")) return QStringLiteral("flags");
-    if (has("-port")) return QStringLiteral("port");
+    const QString help = spoofHelp();
+    if (helpHasFlag(help, QStringLiteral("listen-addr"))) return QStringLiteral("listen");
+    if (helpHasFlag(help, QStringLiteral("config"))) return QStringLiteral("config");
+    if (helpHasFlag(help, QStringLiteral("addr")) && helpHasFlag(help, QStringLiteral("port"))) return QStringLiteral("flags");
+    if (helpHasFlag(help, QStringLiteral("port"))) return QStringLiteral("port");
     return QStringLiteral("none");
 }
 
@@ -324,25 +394,79 @@ int ToolManager::spoofEffectivePort()
     return spoofStyle() == QLatin1String("none") ? 8080 : m_s.spoofPort;
 }
 
+// SpoofDPI looks up website names itself. Left alone it uses plaintext DNS (UDP to 8.8.8.8 by
+// default), which would show every site name to your ISP. This warns when no safe option exists.
+void ToolManager::warnIfNoDnsOption()
+{
+    const QString help = spoofHelp();
+    if (!helpHasFlag(help, QStringLiteral("dns-mode")) && !helpHasFlag(help, QStringLiteral("enable-doh")))
+        log(QStringLiteral("WARNING: ") + T(QStringLiteral("log.dns_flags_missing")));
+}
+
 QStringList ToolManager::spoofArgs(int port)
 {
     QStringList args;
     const QString style = spoofStyle();
-    if (style == QLatin1String("config")) {
-        const QString cfg = platform::dataDir() + QStringLiteral("/spoofdpi.toml");
-        writeFile(cfg, QStringLiteral("[app]\nlisten-addr = \"127.0.0.1:%1\"\n").arg(port).toUtf8());
+    const QString help = spoofHelp();
+
+    if (style == QLatin1String("listen")) {
+        args << QStringLiteral("--listen-addr") << QStringLiteral("127.0.0.1:%1").arg(port);
+    } else if (style == QLatin1String("config")) {
+        // The config file lives in the bin folder: readable by the autostart launcher, writable only by administrators.
+        const QString cfg = platform::binDir() + QStringLiteral("/spoofdpi.toml");
+        QString toml = QStringLiteral("[app]\nlisten-addr = \"127.0.0.1:%1\"\n").arg(port);
+        if (helpHasFlag(help, QStringLiteral("dns-mode")))
+            toml += QStringLiteral("\n[dns]\nmode = \"system\"\n");
+        writeFile(cfg, toml.toUtf8());
         args << QStringLiteral("--config") << cfg;
     } else if (style == QLatin1String("flags")) {
         args << QStringLiteral("--addr") << QStringLiteral("127.0.0.1") << QStringLiteral("--port") << QString::number(port);
     } else if (style == QLatin1String("port")) {
         args << QStringLiteral("--port") << QString::number(port);
     }
-    const QString help = CommandRunner::run(spoofBin(), {QStringLiteral("--help")}, 8000).combined();
-    if (QRegularExpression(QStringLiteral("(?m)(^|\\s)-system-proxy([\\s=]|$)")).match(help).hasMatch())
-        args << QStringLiteral("--system-proxy=false");
-    if (!m_s.spoofExtraArgs.trimmed().isEmpty())
+
+    // DNS: make the proxy resolve names through the encrypted system resolver.
+    if (style != QLatin1String("config")) {
+        if (helpHasFlag(help, QStringLiteral("dns-mode")))
+            args << QStringLiteral("--dns-mode") << QStringLiteral("system");
+        else if (helpHasFlag(help, QStringLiteral("enable-doh")))
+            args << QStringLiteral("--enable-doh") << QStringLiteral("--dns-addr") << QStringLiteral("1.1.1.1");
+    }
+    // No terminal exists for a background service, so switch the text interface off where the build has one.
+    if (helpHasFlag(help, QStringLiteral("no-tui")))
+        args << QStringLiteral("--no-tui=true");
+    else if (helpHasFlag(help, QStringLiteral("silent")))
+        args << QStringLiteral("--silent");
+    for (const QString& name : {QStringLiteral("system-proxy"), QStringLiteral("set-system-proxy")}) {
+        if (helpHasFlag(help, name))
+            args << QStringLiteral("--%1=false").arg(name);
+    }
+    if (!m_s.spoofExtraArgs.trimmed().isEmpty()) {
+        if (!safeArgText(m_s.spoofExtraArgs))
+            fail(ProblemKind::Unknown, QStringLiteral("The SpoofDPI extra arguments contain characters that are not allowed."));
         args += QProcess::splitCommand(m_s.spoofExtraArgs);
+    }
     return args;
+}
+
+// Verifies a download with the release checksum file, or else with GitHub's published digest.
+void ToolManager::verifyDownload(HttpClient& http, const ReleaseInfo& release, const ReleaseAsset& asset, const QString& file)
+{
+    QUrl sumsUrl;
+    if (!findChecksumUrl(release, &sumsUrl).isEmpty()) {
+        if (verifyChecksum(file, asset.name, QString::fromUtf8(http.get(sumsUrl)))) {
+            log(QStringLiteral("SHA-256 checksum verified."));
+            return;
+        }
+    }
+    static const QRegularExpression digestRe(QStringLiteral("^sha256:([0-9a-fA-F]{64})$"));
+    const QRegularExpressionMatch m = digestRe.match(asset.digest);
+    if (m.hasMatch()) {
+        checkSha256(file, m.captured(1), asset.name);
+        log(QStringLiteral("SHA-256 digest verified."));
+        return;
+    }
+    log(QStringLiteral("No checksum or digest is published for %1; integrity was not verified.").arg(asset.name));
 }
 
 ToolStatus ToolManager::spoofStatus()
@@ -377,21 +501,14 @@ void ToolManager::spoofInstall()
     }
     const ReleaseAsset asset = pickAsset(release, true, QStringLiteral("SpoofDPI"));
 
-    QTemporaryDir tmp;
+    QTemporaryDir tmp(tempTemplate());
     if (!tmp.isValid())
         fail(ProblemKind::PermissionDenied, QStringLiteral("Permission denied: cannot create a temporary folder"));
     const QString archive = tmp.path() + QLatin1Char('/') + asset.name;
     log(QStringLiteral("Downloading SpoofDPI %1 (%2)").arg(release.tag, asset.name));
     http.download(asset.url, archive);
 
-    QUrl sumsUrl;
-    const QString sumsName = findChecksumUrl(release, &sumsUrl);
-    if (!sumsName.isEmpty()) {
-        verifyChecksum(archive, asset.name, QString::fromUtf8(http.get(sumsUrl)));
-        log(QStringLiteral("SHA-256 checksum verified."));
-    } else {
-        log(QStringLiteral("No checksum published for this release; integrity was not verified."));
-    }
+    verifyDownload(http, release, asset, archive);
 
     const QString extractDir = tmp.path() + QStringLiteral("/extract");
     QDir().mkpath(extractDir);
@@ -429,6 +546,7 @@ void ToolManager::spoofStart()
         fail(ProblemKind::MissingTool, QStringLiteral("spoofdpi: command not found (not installed)"),
              {{QStringLiteral("tool"), QStringLiteral("spoofdpi")}});
 
+    warnIfNoDnsOption();
     spoofStop();
     const int port = spoofEffectivePort();
     if (portInUse(port))
@@ -464,12 +582,12 @@ void ToolManager::spoofStart()
 #else
     QStringList quoted;
     for (const QString& a : args)
-        quoted << quoteArg(a);
+        quoted << systemdQuote(a);
     const QString unit = QStringLiteral(
         "[Unit]\nDescription=Security DNS - SpoofDPI local DPI-bypass proxy\nAfter=network-online.target systemd-resolved.service\n"
         "Wants=network-online.target\n\n[Service]\nType=simple\nExecStart=%1 %2\nRestart=on-failure\nRestartSec=5\n"
-        "DynamicUser=yes\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n\n"
-        "[Install]\nWantedBy=multi-user.target\n").arg(quoteArg(spoofBin()), quoted.join(QLatin1Char(' ')));
+        "DynamicUser=yes\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=yes\nProtectKernelTunables=yes\nProtectControlGroups=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\nAmbientCapabilities=CAP_NET_BIND_SERVICE\n\n"
+        "[Install]\nWantedBy=multi-user.target\n").arg(systemdQuote(spoofBin()), quoted.join(QLatin1Char(' ')));
     writeFile(QStringLiteral("/etc/systemd/system/%1.service").arg(kServiceName), unit.toUtf8(),
               QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadGroup | QFileDevice::ReadOther);
     CommandRunner::runChecked(QStringLiteral("systemctl"), {QStringLiteral("daemon-reload")});
@@ -477,13 +595,13 @@ void ToolManager::spoofStart()
 #endif
 
     // Wait up to about 15 seconds for the port to open.
-    QThread::sleep(2);
+    interruptibleSleep(2000);
     for (int i = 0; i < 20; ++i) {
         if (portInUse(port)) {
             log(QStringLiteral("SpoofDPI is listening on 127.0.0.1:%1").arg(port));
             return;
         }
-        QThread::msleep(750);
+        interruptibleSleep(750);
     }
 #ifdef Q_OS_WIN
     for (const QString& file : {errLog, outLog}) {
@@ -594,9 +712,10 @@ void ToolManager::warpInstall()
     }
     HttpClient http(m_s.networkTimeoutSec, m_s.githubToken);
 #ifdef Q_OS_WIN
-    QTemporaryDir tmp;
+    QTemporaryDir tmp(tempTemplate());
     const QString msi = tmp.path() + QStringLiteral("/warp.msi");
     http.download(QUrl(QStringLiteral("https://downloads.cloudflareclient.com/v1/download/windows/ga")), msi);
+    assertSignedBy(msi, QStringLiteral("Cloudflare"));
     StateStore::set(QStringLiteral("warpMsiAdded"), true);
     installMsi(msi);
     StateStore::set(QStringLiteral("warpProductCode"), findProductCode(QStringLiteral("Cloudflare WARP")));
@@ -648,12 +767,19 @@ void ToolManager::warpStart()
 
 #ifndef Q_OS_WIN
     CommandRunner::runChecked(QStringLiteral("systemctl"), {QStringLiteral("start"), QStringLiteral("warp-svc")});
-    QThread::sleep(3);
+    interruptibleSleep(3000);
 #endif
     const QStringList tos = {QStringLiteral("--accept-tos")};
     if (!CommandRunner::run(warpCli(), tos + QStringList{QStringLiteral("registration"), QStringLiteral("show")}, 15000).ok()) {
-        CommandRunner::runChecked(warpCli(), tos + QStringList{QStringLiteral("registration"), QStringLiteral("new")}, 60000);
-        StateStore::set(QStringLiteral("warpRegisteredByUs"), true);
+        // Newer clients use "registration new", older ones "register". A failure here is not fatal:
+        // "connect" reports the real problem if the client is still unregistered.
+        CommandResult reg = CommandRunner::run(warpCli(), tos + QStringList{QStringLiteral("registration"), QStringLiteral("new")}, 60000);
+        if (!reg.ok())
+            reg = CommandRunner::run(warpCli(), tos + QStringList{QStringLiteral("register")}, 60000);
+        if (reg.ok())
+            StateStore::set(QStringLiteral("warpRegisteredByUs"), true);
+        else
+            log(QStringLiteral("WARP registration did not complete: %1").arg(reg.combined()));
     }
     CommandRunner::run(warpCli(), tos + QStringList{QStringLiteral("connect")}, 20000);
     for (int i = 0; i < 20; ++i) {
@@ -661,7 +787,7 @@ void ToolManager::warpStart()
             log(QStringLiteral("Cloudflare WARP is connected."));
             return;
         }
-        QThread::sleep(1);
+        interruptibleSleep(1000);
     }
     fail(ProblemKind::NetworkTimeout, QStringLiteral("WARP did not report Connected (connection timed out). Check: warp-cli status"));
 }
@@ -697,7 +823,9 @@ void ToolManager::warpUninstall()
 {
     warpStop();
     if (StateStore::flag(QStringLiteral("warpRegisteredByUs"))) {
-        CommandRunner::run(warpCli(), {QStringLiteral("--accept-tos"), QStringLiteral("registration"), QStringLiteral("delete")}, 30000);
+        const CommandResult removed = CommandRunner::run(warpCli(), {QStringLiteral("--accept-tos"), QStringLiteral("registration"), QStringLiteral("delete")}, 30000);
+        if (!removed.ok())
+            CommandRunner::run(warpCli(), {QStringLiteral("--accept-tos"), QStringLiteral("delete")}, 30000);   // older clients
         StateStore::remove(QStringLiteral("warpRegisteredByUs"));
     }
 #ifdef Q_OS_WIN
@@ -794,9 +922,11 @@ void ToolManager::wgInstall()
         }
         if (msiAsset.name.isEmpty())
             fail(ProblemKind::AssetNotFound, QStringLiteral("No WireGuard MSI asset found in release %1").arg(wg.tag));
-        QTemporaryDir tmp;
+        QTemporaryDir tmp(tempTemplate());
         const QString msi = tmp.path() + QLatin1Char('/') + msiAsset.name;
         http.download(msiAsset.url, msi);
+        verifyDownload(http, wg, msiAsset, msi);
+        assertSignedBy(msi, QStringLiteral("WireGuard"));
         StateStore::set(QStringLiteral("wgClientAdded"), true);
         installMsi(msi);
         StateStore::set(QStringLiteral("wgProductCode"), findProductCode(QStringLiteral("WireGuard")));
@@ -823,7 +953,13 @@ void ToolManager::wgInstall()
             if (!QFileInfo(wgcfBin()).isFile())
                 StateStore::set(QStringLiteral("wgcfBinAdded"), true);
             QDir().mkpath(platform::binDir());
-            http.download(asset.url, wgcfBin());
+            QTemporaryDir tmp(tempTemplate());
+            const QString download = tmp.path() + QLatin1Char('/') + asset.name;
+            http.download(asset.url, download);
+            verifyDownload(http, release, asset, download);
+            QFile::remove(wgcfBin());
+            if (!QFile::copy(download, wgcfBin()))
+                fail(ProblemKind::PermissionDenied, QStringLiteral("Permission denied: cannot write %1").arg(wgcfBin()));
             QFile(wgcfBin()).setPermissions(executablePerms());
             StateStore::set(QStringLiteral("wgcfTag"), release.tag);
             log(QStringLiteral("Installed wgcf %1").arg(release.tag));
@@ -851,8 +987,17 @@ void ToolManager::wgWriteConf()
 
     const QRegularExpression dnsLine(QStringLiteral("^\\s*DNS\\s*="));
     const QRegularExpression endpointLine(QStringLiteral("^\\s*Endpoint\\s*="));
+    static const QRegularExpression endpointValue(QStringLiteral("^[\\[\\]A-Za-z0-9._:-]+:\\d{1,5}$"));
+    if (!m_s.wgEndpoint.trimmed().isEmpty() && !endpointValue.match(m_s.wgEndpoint.trimmed()).hasMatch())
+        fail(ProblemKind::Unknown, QStringLiteral("The WireGuard endpoint in the settings is not valid."));
     QStringList out;
+    // wg-quick runs PreUp/PostUp/PreDown/PostDown lines as root. The profile comes from Cloudflare's API
+    // through wgcf and never needs them, so they are removed rather than trusted.
+    static const QRegularExpression scriptLine(QStringLiteral("^\\s*(PreUp|PostUp|PreDown|PostDown|SaveConfig)\\s*="),
+                                               QRegularExpression::CaseInsensitiveOption);
     for (const QString& line : lines) {
+        if (scriptLine.match(line).hasMatch())
+            continue;
 #ifndef Q_OS_WIN
         if (m_s.wgStripDns && dnsLine.match(line).hasMatch())
             continue; // the app handles DNS itself, so wg-quick does not need resolvconf
@@ -881,7 +1026,7 @@ void ToolManager::wgStart()
     CommandRunner::runChecked(wireguardExe(), {QStringLiteral("/installtunnelservice"), wgConfPath()}, 60000);
     for (int i = 0; i < 15; ++i) {
         if (wgStatus().running) { log(QStringLiteral("WireGuard tunnel started.")); return; }
-        QThread::sleep(1);
+        interruptibleSleep(1000);
     }
     fail(ProblemKind::NetworkTimeout, QStringLiteral("WireGuard tunnel did not start (connection timed out)."));
 #else

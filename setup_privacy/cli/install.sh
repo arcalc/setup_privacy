@@ -24,7 +24,7 @@
 
 set -uo pipefail
 
-readonly SCRIPT_VERSION="3.0.0"
+readonly SCRIPT_VERSION="3.1.1"
 readonly REPO_RAW="https://raw.githubusercontent.com/arcalc/setup_privacy/main/cli"
 readonly PORTFOLIO_URL="https://arcalc.github.io/arcalc/"
 readonly CONTACT_EMAIL="thearcalc@protonmail.com"
@@ -41,15 +41,17 @@ readonly STATE_FILE="${STATE_DIR}/state.env"
 readonly SETTINGS_FILE="${STATE_DIR}/settings.env"
 readonly BACKUP_DIR="${STATE_DIR}/backup"
 readonly USERS_FILE="${BACKUP_DIR}/users.tsv"
-readonly SPOOF_BIN_DEFAULT="/usr/local/bin/spoofdpi"
+readonly SPOOF_BIN_DEFAULT="${LIB_DIR}/bin/spoofdpi"
 readonly SERVICE_NAME="security-dns"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly WG_IFACE="security-dns"
 readonly WG_SERVICE="wg-quick@${WG_IFACE}"
 readonly WG_CONF="/etc/wireguard/${WG_IFACE}.conf"
-readonly WGCF_BIN_DEFAULT="/usr/local/bin/wgcf"
+readonly WGCF_BIN_DEFAULT="${LIB_DIR}/bin/wgcf"
 readonly WGCF_DIR="${STATE_DIR}/wgcf"
 readonly RESOLVED_CONF="/etc/systemd/resolved.conf"
+readonly DROPIN_DIR="/etc/systemd/resolved.conf.d"
+readonly DROPIN_FILE="${DROPIN_DIR}/90-security-dns.conf"
 readonly RESOLV_CONF="/etc/resolv.conf"
 readonly STUB_RESOLV="/run/systemd/resolve/stub-resolv.conf"
 readonly ENV_FILE="/etc/environment"
@@ -62,17 +64,17 @@ readonly WARP_DNF_URL="https://pkg.cloudflareclient.com/cloudflare-warp-ascii.re
 
 PM=""
 UI_LANG="en"
-TMP_DIR=""
+RUN_TMP=""
 ERR_LOG=""
 RELEASE_TAG=""
+RELEASE_JSON=""
 ASSET_URL=""
-SUMS_URL=""
 
 # -----------------------------------------------------------------------------
 # Customizable settings (stored in settings.env, edited from the Settings menu)
 # -----------------------------------------------------------------------------
 readonly SETTING_KEYS=(SPOOF_PORT DNS_SERVERS WG_ENDPOINT WG_STRIP_DNS SPOOF_ARG_STYLE
-  SPOOF_EXTRA_FLAGS SPOOF_PATH WGCF_PATH NET_TIMEOUT GITHUB_TOKEN)
+  SPOOF_EXTRA_FLAGS MANAGE_PROXY SPOOF_PATH WGCF_PATH WG_QUICK_PATH WARP_CLI_PATH NET_TIMEOUT GITHUB_TOKEN)
 
 declare -A SETTING_DEFAULT=(
   [SPOOF_PORT]="8080"
@@ -81,8 +83,11 @@ declare -A SETTING_DEFAULT=(
   [WG_STRIP_DNS]="1"
   [SPOOF_ARG_STYLE]="auto"
   [SPOOF_EXTRA_FLAGS]=""
+  [MANAGE_PROXY]="1"
   [SPOOF_PATH]=""
   [WGCF_PATH]=""
+  [WG_QUICK_PATH]=""
+  [WARP_CLI_PATH]=""
   [NET_TIMEOUT]="30"
   [GITHUB_TOKEN]=""
 )
@@ -152,12 +157,18 @@ declare -A MSG_EN=(
   [set_DNS_SERVERS]="DNS servers - encrypted DNS servers used for every lookup, space separated (default 1.1.1.1 1.0.0.1). Use ip#hostname to pin a TLS name."
   [set_WG_ENDPOINT]="WireGuard endpoint - replaces the server address (host:port) in the WireGuard profile. Empty keeps Cloudflare's default."
   [set_WG_STRIP_DNS]="WireGuard DNS handling - 1 = this app handles DNS (no resolvconf needed), 0 = the profile sets DNS itself."
-  [set_SPOOF_ARG_STYLE]="SpoofDPI argument style - auto, config, flags, port or none. Auto reads the installed build's --help."
+  [set_SPOOF_ARG_STYLE]="SpoofDPI argument style - auto, listen, config, flags, port or none. Auto reads the installed build help."
   [set_SPOOF_EXTRA_FLAGS]="SpoofDPI extra flags - added to the SpoofDPI command line. Advanced."
   [set_SPOOF_PATH]="SpoofDPI program path - use your own binary instead of the downloaded one. Empty = managed copy."
   [set_WGCF_PATH]="wgcf program path - use your own wgcf binary. Empty = managed copy."
   [set_NET_TIMEOUT]="Network timeout - seconds to wait for connections (5-300, default 30)."
   [set_GITHUB_TOKEN]="GitHub token - optional, avoids GitHub download rate limits. Stored only on this computer."
+  [set_MANAGE_PROXY]="System proxy - 1 = point the system proxy at SpoofDPI while it runs, 0 = leave your proxy settings alone."
+  [set_WG_QUICK_PATH]="wg-quick program path - use a specific wg-quick. Empty = find it automatically."
+  [set_WARP_CLI_PATH]="warp-cli program path - use a specific warp-cli. Empty = find it automatically."
+  [stale_proxy]="The system proxy was set by this app, but SpoofDPI is not running (for example after a reboot). Clearing it so your internet keeps working."
+  [proxy_no_autostart]="Note: autostart is off. After a reboot SpoofDPI will not run but the proxy setting stays. Enable autostart in the Tool Manager, or use the kill switch."
+  [dns_flags_missing]="Warning: this SpoofDPI build has no DNS option this app knows, so it may look up names with its own plaintext DNS instead of your encrypted DNS. Run a DNS leak test."
   [set_current]="current"
   [set_prompt]="New value (empty keeps it, '-' clears it): "
   [set_saved]="Saved."
@@ -180,8 +191,8 @@ declare -A MSG_EN=(
   [p_unsupported_flag_f]="I will switch to a different option style (config file, flags, port only, or none) and retry."
   [p_missing_resolvconf_t]="resolvconf is missing"
   [p_missing_resolvconf_e]="WireGuard needs the resolvconf tool to set DNS, and it is not installed."
-  [p_missing_resolvconf_f]="I will install resolvconf (openresolv on Arch, Fedora and openSUSE) with your package manager."
-  [p_missing_resolvconf_a]="Let this app handle DNS instead (recommended)"
+  [p_missing_resolvconf_f]="I will let this app handle DNS (no extra package needed) and retry."
+  [p_missing_resolvconf_a]="Install resolvconf with your package manager instead"
   [p_missing_tool_t]="A required program is missing"
   [p_missing_tool_e]="A program this operation needs is not installed."
   [p_missing_tool_f]="I will install it with your package manager and retry."
@@ -287,12 +298,18 @@ declare -A MSG_AR=(
   [set_DNS_SERVERS]="خوادم DNS - خوادم DNS المشفّرة لكل الاستعلامات، مفصولة بمسافة (الافتراضي 1.1.1.1 1.0.0.1). استخدم ip#hostname لتحديد اسم TLS."
   [set_WG_ENDPOINT]="نقطة اتصال WireGuard - تستبدل عنوان الخادم (host:port) في ملف WireGuard. الفارغ يبقي افتراضي Cloudflare."
   [set_WG_STRIP_DNS]="التعامل مع DNS في WireGuard - 1 = يتولى التطبيق DNS (دون حاجة لـ resolvconf)، 0 = الملف يضبط DNS بنفسه."
-  [set_SPOOF_ARG_STYLE]="نمط خيارات SpoofDPI - auto أو config أو flags أو port أو none. وضع auto يقرأ --help للإصدار المثبّت."
+  [set_SPOOF_ARG_STYLE]="نمط خيارات SpoofDPI - auto أو listen أو config أو flags أو port أو none. وضع auto يقرأ مساعدة الإصدار المثبّت."
   [set_SPOOF_EXTRA_FLAGS]="خيارات إضافية لـ SpoofDPI - تُضاف إلى سطر أوامر SpoofDPI. للمتقدمين."
   [set_SPOOF_PATH]="مسار برنامج SpoofDPI - استخدم ملفك التنفيذي بدل المنزّل. الفارغ = النسخة المُدارة."
   [set_WGCF_PATH]="مسار برنامج wgcf - استخدم ملف wgcf الخاص بك. الفارغ = النسخة المُدارة."
   [set_NET_TIMEOUT]="مهلة الشبكة - ثوانٍ لانتظار الاتصالات (5-300، الافتراضي 30)."
   [set_GITHUB_TOKEN]="رمز GitHub - اختياري، يتجنب حدود التنزيل من GitHub. يُحفظ على هذا الجهاز فقط."
+  [set_MANAGE_PROXY]="وكيل النظام - 1 = وجّه وكيل النظام إلى SpoofDPI أثناء تشغيله، 0 = اترك إعدادات الوكيل كما هي."
+  [set_WG_QUICK_PATH]="مسار برنامج wg-quick - استخدم wg-quick محدداً. الفارغ = يُعثر عليه تلقائياً."
+  [set_WARP_CLI_PATH]="مسار برنامج warp-cli - استخدم warp-cli محدداً. الفارغ = يُعثر عليه تلقائياً."
+  [stale_proxy]="تم ضبط وكيل النظام بواسطة هذا التطبيق لكن SpoofDPI لا يعمل (مثلاً بعد إعادة التشغيل). جارٍ مسحه لتبقى الإنترنت تعمل."
+  [proxy_no_autostart]="ملاحظة: البدء التلقائي معطّل. بعد إعادة التشغيل لن يعمل SpoofDPI لكن إعداد الوكيل سيبقى. فعّل البدء التلقائي من مدير الأدوات، أو استخدم مفتاح الإيقاف الطارئ."
+  [dns_flags_missing]="تحذير: لا يحتوي هذا الإصدار من SpoofDPI على خيار DNS يعرفه التطبيق، فقد يبحث عن الأسماء بخادم DNS الخاص به غير المشفّر بدل DNS المشفّر لديك. شغّل اختبار تسرب DNS."
   [set_current]="الحالي"
   [set_prompt]="القيمة الجديدة (الفارغ يبقيها، و'-' يمسحها): "
   [set_saved]="تم الحفظ."
@@ -315,8 +332,8 @@ declare -A MSG_AR=(
   [p_unsupported_flag_f]="سأنتقل إلى نمط خيارات مختلف (ملف إعداد أو خيارات أو منفذ فقط أو بدون) وأعيد المحاولة."
   [p_missing_resolvconf_t]="أداة resolvconf غير موجودة"
   [p_missing_resolvconf_e]="يحتاج WireGuard إلى أداة resolvconf لضبط DNS وهي غير مثبّتة."
-  [p_missing_resolvconf_f]="سأثبّت resolvconf (أو openresolv على Arch وFedora وopenSUSE) عبر مدير الحزم."
-  [p_missing_resolvconf_a]="دع التطبيق يتولى DNS بدلاً من ذلك (موصى به)"
+  [p_missing_resolvconf_f]="سأدع التطبيق يتولى DNS (دون حاجة لحزمة إضافية) وأعيد المحاولة."
+  [p_missing_resolvconf_a]="ثبّت resolvconf عبر مدير الحزم بدلاً من ذلك"
   [p_missing_tool_t]="برنامج مطلوب غير موجود"
   [p_missing_tool_e]="برنامج تحتاجه هذه العملية غير مثبّت."
   [p_missing_tool_f]="سأثبّته عبر مدير الحزم وأعيد المحاولة."
@@ -382,10 +399,15 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 step() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 
 cleanup() {
-  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
+  [[ -n "$RUN_TMP" && -d "$RUN_TMP" ]] && rm -rf "$RUN_TMP"
   [[ -n "$ERR_LOG" && -f "$ERR_LOG" ]] && rm -f "$ERR_LOG"
   return 0
 }
+
+# Temporary files live under one folder that the main shell removes on exit, even
+# when the work happens inside a recovery subshell (whose own traps do not run).
+tmp_dir()  { mktemp -d -p "${RUN_TMP:-/tmp}"; }
+tmp_file() { mktemp -p "${RUN_TMP:-/tmp}"; }
 trap cleanup EXIT
 
 confirm() {  # <question>; returns 0 for yes
@@ -433,16 +455,21 @@ state_set() {  # <key> <value>
   printf '%s=%s\n' "$1" "$2" >> "$STATE_FILE"
 }
 
+# Returns the stored value when it is valid, otherwise the default. Re-checking on
+# every read means a hand-edited settings file can never inject anything.
 setting_get() {  # <key>
-  local line=""
+  local key="$1" line="" value=""
   if [[ -f "$SETTINGS_FILE" ]]; then
-    line="$(grep -m1 "^${1}=" "$SETTINGS_FILE" || true)"
+    line="$(grep -m1 "^${key}=" "$SETTINGS_FILE" || true)"
   fi
   if [[ -n "$line" ]]; then
-    printf '%s' "${line#*=}"
-  else
-    printf '%s' "${SETTING_DEFAULT[$1]:-}"
+    value="${line#*=}"
+    if setting_valid "$key" "$value"; then
+      printf '%s' "$value"
+      return 0
+    fi
   fi
+  printf '%s' "${SETTING_DEFAULT[$key]:-}"
 }
 
 setting_set() {  # <key> <value>
@@ -450,32 +477,42 @@ setting_set() {  # <key> <value>
   touch "$SETTINGS_FILE"
   chmod 0600 "$SETTINGS_FILE"
   local tmp
-  tmp="$(mktemp)"
-  grep -v "^${1}=" "$SETTINGS_FILE" > "$tmp" || true
-  printf '%s=%s\n' "$1" "$2" >> "$tmp"
-  cat "$tmp" > "$SETTINGS_FILE"
-  rm -f "$tmp"
+  # Written next to the target and renamed, so an interruption never leaves a half-written file.
+  tmp="$(mktemp -p "$STATE_DIR")"
+  { grep -v "^${1}=" "$SETTINGS_FILE" || true; printf '%s=%s\n' "$1" "$2"; } > "$tmp"
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$SETTINGS_FILE"
 }
 
 # setting_valid <key> <value>: returns 0 when the value is acceptable.
+# setting_valid <key> <value>: returns 0 when the value is acceptable.
 setting_valid() {
-  local key="$1" value="$2" item re
+  local key="$1" value="$2" item re leftover
+  local -a items=()
   case "$key" in
-    SPOOF_PORT)  [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )) ;;
+    SPOOF_PORT)
+      [[ "$value" =~ ^[0-9]{1,5}$ ]] && (( 10#$value >= 1 && 10#$value <= 65535 )) ;;
     DNS_SERVERS)
       [[ -n "$value" ]] || return 1
-      for item in $value; do
+      read -ra items <<< "$value"
+      for item in "${items[@]}"; do
         [[ "$item" =~ ^[0-9A-Fa-f:.]+(#[A-Za-z0-9.-]+)?$ ]] || return 1
       done ;;
     WG_ENDPOINT)
       re='^[][A-Za-z0-9._:-]+:[0-9]{1,5}$'
       [[ -z "$value" || "$value" =~ $re ]] ;;
-    WG_STRIP_DNS) [[ "$value" == "0" || "$value" == "1" ]] ;;
-    SPOOF_ARG_STYLE) [[ "$value" =~ ^(auto|config|flags|port|none)$ ]] ;;
-    SPOOF_EXTRA_FLAGS) [[ ! "$value" =~ [\;\&\|\$\`\<\>] ]] ;;
-    SPOOF_PATH|WGCF_PATH) [[ -z "$value" || ( "$value" == /* && -x "$value" ) ]] ;;
-    NET_TIMEOUT) [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 5 && value <= 300 )) ;;
-    GITHUB_TOKEN) [[ ! "$value" =~ [[:space:]] ]] ;;
+    WG_STRIP_DNS|MANAGE_PROXY) [[ "$value" == "0" || "$value" == "1" ]] ;;
+    SPOOF_ARG_STYLE) [[ "$value" =~ ^(auto|listen|config|flags|port|none)$ ]] ;;
+    SPOOF_EXTRA_FLAGS)
+      # Allow-list: letters, digits, space and . _ = : / @ , + - only. No quotes, %, $, ; & or |,
+      # which are special to the shell and to systemd unit files.
+      leftover="$(printf '%s' "$value" | tr -d '[:alnum:] ._=:/@,+-')"
+      [[ -z "$leftover" ]] ;;
+    SPOOF_PATH|WGCF_PATH|WG_QUICK_PATH|WARP_CLI_PATH)
+      [[ -z "$value" ]] || [[ "$value" =~ ^/[A-Za-z0-9._/+@-]+$ && -x "$value" ]] ;;
+    NET_TIMEOUT)
+      [[ "$value" =~ ^[0-9]{1,3}$ ]] && (( 10#$value >= 5 && 10#$value <= 300 )) ;;
+    GITHUB_TOKEN) [[ "$value" =~ ^[A-Za-z0-9_-]*$ ]] ;;
     *) return 1 ;;
   esac
 }
@@ -508,7 +545,7 @@ detect_package_manager() {
 pm_install() {  # <packages...>
   case "$PM" in
     apt)    DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" ;;
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-remove "$@" ;;   # never remove packages as a side effect
     dnf)    dnf install -y -q "$@" ;;
     pacman) pacman -S --needed --noconfirm "$@" ;;
     zypper) zypper --non-interactive install "$@" ;;
@@ -549,13 +586,16 @@ http_get() {  # <url> [output file]
   local url="$1" out="${2:-}" token
   local -a args=(-fsSL --retry 2 --connect-timeout "$(setting_get NET_TIMEOUT)" --max-time 900)
   token="$(setting_get GITHUB_TOKEN)"
-  if [[ -n "$token" && "$url" == https://api.github.com/* ]]; then
-    args+=(-H "Authorization: Bearer ${token}")
-  fi
   if [[ -n "$out" ]]; then
-    curl "${args[@]}" -o "$out" "$url"
+    args+=(-o "$out")
   else
-    curl "${args[@]}" -H 'Accept: application/vnd.github+json' "$url"
+    args+=(-H 'Accept: application/vnd.github+json')
+  fi
+  if [[ -n "$token" && "$url" == https://api.github.com/* ]]; then
+    # The token goes through stdin so it never shows up in the process list.
+    printf 'header = "Authorization: Bearer %s"\n' "$token" | curl "${args[@]}" -K - "$url"
+  else
+    curl "${args[@]}" "$url"
   fi
 }
 
@@ -636,7 +676,8 @@ present_problem() {
 
 rotate_arg_style() {
   case "$(setting_get SPOOF_ARG_STYLE)" in
-    auto)   setting_set SPOOF_ARG_STYLE config ;;
+    auto)   setting_set SPOOF_ARG_STYLE listen ;;
+    listen) setting_set SPOOF_ARG_STYLE config ;;
     config) setting_set SPOOF_ARG_STYLE flags ;;
     flags)  setting_set SPOOF_ARG_STYLE port ;;
     port)   setting_set SPOOF_ARG_STYLE none ;;
@@ -645,10 +686,13 @@ rotate_arg_style() {
   log "SpoofDPI argument style: $(setting_get SPOOF_ARG_STYLE)"
 }
 
+# Only used when the user picks it. On Arch the systemd-provided shim is the right package, because
+# openresolv would conflict with systemd-resolved; apt runs with --no-remove so it can never replace it.
 install_resolvconf() {
   case "$PM" in
-    apt) pm_install resolvconf ;;
-    *)   pm_install openresolv ;;
+    apt)    pm_install resolvconf ;;
+    pacman) pm_install systemd-resolvconf ;;
+    *)      pm_install openresolv ;;
   esac
 }
 
@@ -665,10 +709,10 @@ apply_fix() {
       rotate_arg_style ;;
     missing_resolvconf)
       if [[ "$alt" == "1" ]]; then
-        setting_set WG_STRIP_DNS 1
-      else
         install_resolvconf
         configure_dot
+      else
+        setting_set WG_STRIP_DNS 1   # safe default: the app handles DNS, no package changes
       fi ;;
     missing_tool)
       tool="$(missing_tool_name "$details")"
@@ -783,7 +827,7 @@ backup_state() {
   [[ "$(state_get BACKUP_DONE)" == "1" ]] && return 0
   mkdir -p "$BACKUP_DIR"
   chmod 0700 "$STATE_DIR"
-  snapshot_file "$RESOLVED_CONF" resolved.conf
+  snapshot_file "$DROPIN_FILE" dropin
   snapshot_file "$RESOLV_CONF" resolv.conf
   snapshot_file "$ENV_FILE" environment
   if [[ ! -f "$USERS_FILE" ]]; then
@@ -807,8 +851,10 @@ backup_state() {
 configure_dot() {
   command -v resolvectl >/dev/null 2>&1 || die "resolvectl: command not found (systemd-resolved is missing)"
   systemctl enable --now systemd-resolved >/dev/null 2>&1 || die "systemd-resolved could not be enabled (not found or failed)"
-  cat > "$RESOLVED_CONF" <<EOF
-# Managed by Security DNS. The original file is restored by the undo option.
+  # A drop-in file overrides resolved.conf without editing it, so undoing it only means deleting this file.
+  mkdir -p "$DROPIN_DIR"
+  cat > "$DROPIN_FILE" <<EOF
+# Managed by Security DNS. Removed by the restore option.
 [Resolve]
 DNS=$(setting_get DNS_SERVERS)
 FallbackDNS=
@@ -816,8 +862,9 @@ DNSOverTLS=yes
 DNSSEC=allow-downgrade
 Domains=~.
 EOF
+  chmod 0644 "$DROPIN_FILE"
   [[ -f "$STUB_RESOLV" ]] || die "systemd-resolved stub file not found at ${STUB_RESOLV}"
-  ln -sf "$STUB_RESOLV" "$RESOLV_CONF"
+  ln -sfn "$STUB_RESOLV" "$RESOLV_CONF"
   systemctl restart systemd-resolved
   if resolvectl query one.one.one.one >/dev/null 2>&1; then
     log "Encrypted DNS works ($(setting_get DNS_SERVERS))."
@@ -827,7 +874,7 @@ EOF
 }
 
 ensure_encrypted_dns() {
-  if grep -q 'Managed by Security DNS' "$RESOLVED_CONF" 2>/dev/null; then return 0; fi
+  if grep -q 'Managed by Security DNS' "$DROPIN_FILE" 2>/dev/null; then return 0; fi
   configure_dot
 }
 
@@ -842,7 +889,7 @@ ensure_prepared() {
 # -----------------------------------------------------------------------------
 write_env_proxy() {  # <port or empty to disable>
   local port="$1" tmp
-  tmp="$(mktemp)"
+  tmp="$(tmp_file)"
   if [[ -f "$ENV_FILE" ]]; then
     sed '/^# BEGIN security-dns$/,/^# END security-dns$/d' "$ENV_FILE" > "$tmp"
   else
@@ -913,28 +960,61 @@ set_system_proxy() { write_env_proxy "$1"; set_gnome_proxy "$1"; set_kde_proxy "
 # Tool 1: SpoofDPI
 # -----------------------------------------------------------------------------
 resolve_spoofdpi_release() {
-  local json urls
-  json="$(http_get "https://api.github.com/repos/${SPOOFDPI_REPO}/releases/latest")" \
+  local urls
+  RELEASE_JSON="$(http_get "https://api.github.com/repos/${SPOOFDPI_REPO}/releases/latest")" \
     || die "Could not query the GitHub API for ${SPOOFDPI_REPO} (network issue or rate limit)."
-  RELEASE_TAG="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
-  urls="$(printf '%s' "$json" | grep -o '"browser_download_url": *"[^"]*"' | sed 's/.*"\(https[^"]*\)"$/\1/' || true)"
-  ASSET_URL="$(printf '%s\n' "$urls" | grep -iE 'linux' | grep -iE 'amd64|x86_64' | grep -viE '\.(sha256|sig|asc|txt|md5)$' | head -n1 || true)"
-  SUMS_URL="$(printf '%s\n' "$urls" | grep -iE 'sha256|checksum' | grep -viE 'windows|darwin|arm' | head -n1 || true)"
+  RELEASE_TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+  urls="$(printf '%s' "$RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*"' | sed 's/.*"\(https[^"]*\)"$/\1/' || true)"
+  ASSET_URL="$(printf '%s\n' "$urls" | grep -iE 'linux' | grep -iE 'amd64|x86_64' | grep -viE '\.(sha256|sig|asc|txt|md5|json)$' | head -n1 || true)"
   [[ -n "$ASSET_URL" ]] || die "No linux-amd64 asset found in SpoofDPI release ${RELEASE_TAG:-unknown}."
 }
 
+verify_sha256() {  # <file> <expected hex>
+  local actual
+  actual="$(sha256sum "$1" | awk '{print $1}')"
+  [[ "${actual,,}" == "${2,,}" ]] || die "SHA-256 mismatch for $(basename "$1"). Refusing to install (checksum error)."
+  log "SHA-256 checksum verified."
+}
+
+# Returns 1 (without failing the install) when the checksum file cannot be parsed.
 verify_checksum() {  # <file> <sums file> <asset name>
-  local file="$1" sums="$2" name="$3" expected actual
-  expected="$(awk -v n="$name" 'index($0, n) {print $1; exit}' "$sums" || true)"
-  [[ -n "$expected" ]] || expected="$(awk 'NF {print $1; exit}' "$sums" || true)"
+  local expected
+  expected="$(awk -v n="$3" 'index($0, n) {print $1; exit}' "$2" || true)"
+  # A file that lists many assets must name ours; only a file holding one bare hash may be used as is.
+  if [[ -z "$expected" && "$(grep -c '[^[:space:]]' "$2" || true)" == "1" ]]; then
+    expected="$(awk 'NF {print $1; exit}' "$2" || true)"
+  fi
   expected="$(printf '%s' "$expected" | tr -d '[:space:]')"
   if [[ ! "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
-    warn "Checksum file could not be parsed; skipping verification."
+    warn "Checksum file could not be parsed."
+    return 1
+  fi
+  verify_sha256 "$1" "$expected"
+}
+
+# GitHub publishes a sha256 "digest" for each release file. This prints it for one asset.
+asset_digest() {  # <release json> <asset name>
+  printf '%s\n' "$1" | awk -v n="$2" '
+    index($0, "\"name\": \"" n "\"") { found = 1; next }
+    found && /"digest":/ { if (match($0, /sha256:[0-9a-fA-F]+/)) print substr($0, RSTART + 7, RLENGTH - 7); exit }
+    found && /"download_count"/ { exit }'
+}
+
+# Verifies a download with the release checksum file, or else GitHub's published digest.
+verify_download() {  # <file> <asset name> <release json>
+  local file="$1" name="$2" json="$3" sums_url sums digest
+  sums_url="$(printf '%s' "$json" | grep -o '"browser_download_url": *"[^"]*"' | sed 's/.*"\(https[^"]*\)"$/\1/' \
+    | grep -iE 'sha256|checksum' | grep -viE 'windows|darwin|arm' | head -n1 || true)"
+  if [[ -n "$sums_url" ]]; then
+    sums="$(tmp_file)"
+    if http_get "$sums_url" "$sums" && verify_checksum "$file" "$sums" "$name"; then return 0; fi
+  fi
+  digest="$(asset_digest "$json" "$name")"
+  if [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    verify_sha256 "$file" "$digest"
     return 0
   fi
-  actual="$(sha256sum "$file" | awk '{print $1}')"
-  [[ "${expected,,}" == "${actual,,}" ]] || die "SHA-256 mismatch for ${name}. Refusing to install (checksum error)."
-  log "SHA-256 checksum verified."
+  warn "No checksum or digest is published for ${name}; integrity was not verified."
 }
 
 spoof_installed() { [[ -x "$(spoof_bin)" ]]; }
@@ -942,8 +1022,10 @@ spoof_running()   { systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; }
 spoof_enabled()   { systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; }
 
 spoof_install() {
-  if [[ -n "$(setting_get SPOOF_PATH)" && -x "$(setting_get SPOOF_PATH)" ]]; then
-    log "Using your own SpoofDPI program: $(setting_get SPOOF_PATH)"
+  local custom d name file bin=""
+  custom="$(setting_get SPOOF_PATH)"
+  if [[ -n "$custom" && -x "$custom" ]]; then
+    log "Using your own SpoofDPI program: ${custom}"
     return 0
   fi
   resolve_spoofdpi_release
@@ -951,40 +1033,70 @@ spoof_install() {
     log "SpoofDPI is up to date (${RELEASE_TAG})."
     return 0
   fi
-  TMP_DIR="$(mktemp -d)"
-  local name file bin=""
+  d="$(tmp_dir)"
   name="$(basename "$ASSET_URL")"
-  file="${TMP_DIR}/${name}"
+  file="${d}/${name}"
   log "Downloading SpoofDPI ${RELEASE_TAG} (${name})"
   http_get "$ASSET_URL" "$file"
-  if [[ -n "$SUMS_URL" ]] && http_get "$SUMS_URL" "${TMP_DIR}/checksums" 2>/dev/null; then
-    verify_checksum "$file" "${TMP_DIR}/checksums" "$name"
-  else
-    warn "No checksum published for this release; integrity was not verified."
-  fi
+  verify_download "$file" "$name" "$RELEASE_JSON"
   case "$name" in
     *.tar.gz|*.tgz)
-      mkdir -p "${TMP_DIR}/extract"
-      tar -xzf "$file" -C "${TMP_DIR}/extract"
-      bin="$(find "${TMP_DIR}/extract" -type f \( -name 'spoofdpi' -o -name 'spoof-dpi' \) | head -n1 || true)" ;;
+      mkdir -p "${d}/extract"
+      tar -xzf "$file" -C "${d}/extract"
+      bin="$(find "${d}/extract" -type f \( -name 'spoofdpi' -o -name 'spoof-dpi' \) | head -n1 || true)" ;;
     *) bin="$file" ;;
   esac
   [[ -n "$bin" && -f "$bin" ]] || die "Could not locate the spoofdpi binary inside ${name}."
-  install -m 0755 "$bin" "$SPOOF_BIN_DEFAULT"
+  install -D -m 0755 "$bin" "$SPOOF_BIN_DEFAULT"
   state_set SPOOFDPI_TAG "$RELEASE_TAG"
   log "Installed SpoofDPI ${RELEASE_TAG}"
 }
 
 # Reads --help to learn how the installed build takes its address and port.
 # Prints: config, flags, port or none.
+# help_has <help text> <flag name without dashes>: true when the help lists --name or -name.
+# Both spellings matter: older builds print "-addr", newer ones print "--listen-addr".
+help_has() {
+  grep -qE "(^|[^[:alnum:]_-])--?${2}([^[:alnum:]_-]|\$)" <<< "$1"
+}
+
+# The installed build's own --help text, cached for the rest of this run.
+spoof_help() {
+  local bin key file
+  bin="$(spoof_bin)"
+  key="$(printf '%s:%s' "$bin" "$(stat -c %Y "$bin" 2>/dev/null || echo 0)" | cksum | cut -d' ' -f1)"
+  file="${RUN_TMP:-/tmp}/spoof-help.${key}"
+  if [[ ! -s "$file" ]]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 8 "$bin" --help > "$file" 2>&1 || true
+    else
+      "$bin" --help > "$file" 2>&1 || true
+    fi
+  fi
+  cat "$file"
+}
+
+# SpoofDPI looks up website names itself. Left alone it uses plaintext DNS (UDP to 8.8.8.8 by
+# default), which would show every site name to your ISP. This warns when no safe option exists.
+spoof_dns_check() {
+  local help
+  help="$(spoof_help)"
+  if ! help_has "$help" "dns-mode" && ! help_has "$help" "enable-doh"; then
+    warn "$(msg dns_flags_missing)"
+  fi
+}
+
+# Reads --help to learn how the installed build takes its address and port.
+# Prints: listen, config, flags, port or none.
 spoofdpi_port_control() {
   local style help
   style="$(setting_get SPOOF_ARG_STYLE)"
   if [[ "$style" != "auto" ]]; then printf '%s' "$style"; return 0; fi
-  help="$("$(spoof_bin)" --help 2>&1 || true)"
-  if grep -qE '(^|[[:space:]])-config([[:space:]=]|$)' <<< "$help"; then echo config
-  elif grep -qE '(^|[[:space:]])-addr([[:space:]=]|$)' <<< "$help" && grep -qE '(^|[[:space:]])-port([[:space:]=]|$)' <<< "$help"; then echo flags
-  elif grep -qE '(^|[[:space:]])-port([[:space:]=]|$)' <<< "$help"; then echo port
+  help="$(spoof_help)"
+  if help_has "$help" "listen-addr"; then echo listen
+  elif help_has "$help" "config"; then echo config
+  elif help_has "$help" "addr" && help_has "$help" "port"; then echo flags
+  elif help_has "$help" "port"; then echo port
   else echo none
   fi
 }
@@ -995,26 +1107,46 @@ spoof_effective_port() {
 }
 
 build_spoofdpi_args() {  # <port>
-  local port="$1" style args="" help
+  local port="$1" style help args="" extra name
   style="$(spoofdpi_port_control)"
+  help="$(spoof_help)"
   case "$style" in
+    listen) args="--listen-addr 127.0.0.1:${port}" ;;
     config)
       mkdir -p "$LIB_DIR"
-      printf '[app]\nlisten-addr = "127.0.0.1:%s"\n' "$port" > "$SPOOF_CONFIG"
+      {
+        printf '[app]\nlisten-addr = "127.0.0.1:%s"\n' "$port"
+        if help_has "$help" "dns-mode"; then printf '\n[dns]\nmode = "system"\n'; fi
+      } > "$SPOOF_CONFIG"
+      chmod 0644 "$SPOOF_CONFIG"
       args="--config ${SPOOF_CONFIG}" ;;
     flags) args="--addr 127.0.0.1 --port ${port}" ;;
     port)  args="--port ${port}" ;;
     *)     args="" ;;
   esac
-  help="$("$(spoof_bin)" --help 2>&1 || true)"
-  if grep -qE '(^|[[:space:]])-system-proxy([[:space:]=]|$)' <<< "$help"; then
-    args="${args:+$args }--system-proxy=false"
+  # DNS: make the proxy resolve names through the encrypted system resolver.
+  if [[ "$style" != "config" ]]; then
+    if help_has "$help" "dns-mode"; then
+      args="${args:+$args }--dns-mode system"
+    elif help_has "$help" "enable-doh"; then
+      args="${args:+$args }--enable-doh --dns-addr 1.1.1.1"
+    fi
   fi
-  [[ -z "$(setting_get SPOOF_EXTRA_FLAGS)" ]] || args="${args:+$args }$(setting_get SPOOF_EXTRA_FLAGS)"
+  # No terminal exists under systemd, so switch the text interface off where the build has one.
+  if help_has "$help" "no-tui"; then args="${args:+$args }--no-tui=true"
+  elif help_has "$help" "silent"; then args="${args:+$args }--silent"
+  fi
+  for name in system-proxy set-system-proxy; do
+    if help_has "$help" "$name"; then args="${args:+$args }--${name}=false"; fi
+  done
+  extra="$(setting_get SPOOF_EXTRA_FLAGS)"
+  if [[ -n "$extra" ]]; then args="${args:+$args }${extra}"; fi
   printf '%s' "$args"
 }
 
 write_service() {  # <port>
+  local exec_line
+  exec_line="$(spoof_bin) $(build_spoofdpi_args "$1")"
   cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Security DNS - SpoofDPI local DPI-bypass proxy
@@ -1024,14 +1156,20 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$(spoof_bin) $(build_spoofdpi_args "$1")
+ExecStart=${exec_line}
 Restart=on-failure
 RestartSec=5
 DynamicUser=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
@@ -1055,7 +1193,7 @@ ensure_port_free() {  # <port>
 preflight_spoofdpi() {  # <port>
   local port="$1" log_file rc=0
   local -a argv=()
-  log_file="$(mktemp)"
+  log_file="$(tmp_file)"
   read -ra argv <<< "$(build_spoofdpi_args "$port")"
   timeout 4 "$(spoof_bin)" "${argv[@]}" >"$log_file" 2>&1 || rc=$?
   if [[ "$rc" -eq 124 ]]; then rm -f "$log_file"; log "$(msg preflight_ok)"; return 0; fi
@@ -1084,6 +1222,7 @@ start_and_verify() {  # <port>
 spoof_start() {
   spoof_installed || die "SpoofDPI: command not found (not installed)"
   ensure_prepared
+  spoof_dns_check
   systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
   local port
   port="$(spoof_effective_port)"
@@ -1092,11 +1231,34 @@ spoof_start() {
   write_service "$port"
   preflight_spoofdpi "$port"
   start_and_verify "$port"
-  set_system_proxy "$port"
+  if [[ "$(setting_get MANAGE_PROXY)" == "1" ]]; then
+    set_system_proxy "$port"
+    state_set PROXY_MANAGED 1
+    spoof_enabled || warn "$(msg proxy_no_autostart)"
+  fi
+}
+
+# If this app set the system proxy but SpoofDPI is no longer running (a reboot with autostart off, or a
+# crash), every app that uses the proxy would fail. Clear it, and only it, so the internet keeps working.
+clear_stale_proxy() {
+  if [[ "$(state_get PROXY_MANAGED)" == "1" ]] && ! spoof_running; then
+    warn "$(msg stale_proxy)"
+    clear_managed_proxy
+  fi
+  return 0
+}
+
+# Only undo the proxy settings this app made, never your own.
+clear_managed_proxy() {
+  if [[ "$(state_get PROXY_MANAGED)" == "1" ]]; then
+    set_system_proxy ""
+    state_set PROXY_MANAGED 0
+  fi
+  return 0
 }
 
 spoof_stop() {
-  set_system_proxy ""
+  clear_managed_proxy
   systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
   return 0
 }
@@ -1117,10 +1279,22 @@ spoof_uninstall() {
 # -----------------------------------------------------------------------------
 # Tool 2: Cloudflare WARP
 # -----------------------------------------------------------------------------
-warp_cli() { warp-cli --accept-tos "$@"; }
+warp_bin() {
+  local p
+  p="$(setting_get WARP_CLI_PATH)"
+  if [[ -n "$p" ]]; then printf '%s' "$p"; else command -v warp-cli 2>/dev/null || printf 'warp-cli'; fi
+}
 
-warp_installed() { command -v warp-cli >/dev/null 2>&1; }
-warp_running()   { warp_installed && warp_cli status 2>/dev/null | grep -qi 'status update: connected'; }
+warp_cli() { "$(warp_bin)" --accept-tos "$@"; }
+
+warp_installed() { [[ -n "$(setting_get WARP_CLI_PATH)" ]] || command -v warp-cli >/dev/null 2>&1; }
+# The output is captured first: piping into "grep -q" can raise SIGPIPE and fail under pipefail.
+warp_running() {
+  local out
+  warp_installed || return 1
+  out="$(warp_cli status 2>/dev/null || true)"
+  grep -qi 'status update: connected' <<< "$out"
+}
 warp_enabled()   { systemctl is-enabled --quiet warp-svc 2>/dev/null; }
 
 warp_install() {
@@ -1153,17 +1327,26 @@ warp_install() {
   log "Cloudflare WARP client installed."
 }
 
+# Registers the client if needed. Newer clients use "registration new", older ones "register".
+# A failure here is not fatal; "connect" then reports the real problem.
+warp_register() {
+  local out=""
+  if warp_cli registration show >/dev/null 2>&1; then return 0; fi
+  if out="$(warp_cli registration new 2>&1)" || out="$(warp_cli register 2>&1)"; then
+    state_set WARP_REGISTERED_BY_US 1
+  else
+    warn "WARP registration did not complete: ${out}"
+  fi
+  return 0
+}
+
 warp_start() {
   warp_installed || die "warp-cli: command not found (not installed)"
   if wg_running; then die "CONFLICT:wireguard - WireGuard is running; WARP cannot start at the same time."; fi
   ensure_prepared
-  if ! systemctl is-enabled --quiet warp-svc 2>/dev/null; then state_set WARP_SVC_ENABLED_BY_US 1; fi
   systemctl start warp-svc
   sleep 3
-  if ! warp_cli registration show >/dev/null 2>&1; then
-    warp_cli registration new || die "Could not register the WARP client."
-    state_set WARP_REGISTERED_BY_US 1
-  fi
+  warp_register
   warp_cli connect >/dev/null 2>&1 || true
   local i
   for i in $(seq 1 20); do
@@ -1178,7 +1361,11 @@ warp_stop() {
   return 0
 }
 
-warp_enable()  { warp_installed || die "warp-cli: command not found (not installed)"; systemctl enable warp-svc; }
+warp_enable() {
+  warp_installed || die "warp-cli: command not found (not installed)"
+  if ! systemctl is-enabled --quiet warp-svc 2>/dev/null; then state_set WARP_SVC_ENABLED_BY_US 1; fi
+  systemctl enable warp-svc
+}
 warp_disable() { systemctl disable warp-svc >/dev/null 2>&1 || true; }
 
 warp_uninstall() {
@@ -1189,33 +1376,45 @@ warp_uninstall() {
 # -----------------------------------------------------------------------------
 # Tool 3: WireGuard with a WARP profile made by wgcf
 # -----------------------------------------------------------------------------
-wg_installed() { command -v wg-quick >/dev/null 2>&1 && [[ -f "$WG_CONF" ]]; }
+wg_quick_bin() {
+  local p
+  p="$(setting_get WG_QUICK_PATH)"
+  if [[ -n "$p" ]]; then printf '%s' "$p"; else command -v wg-quick 2>/dev/null || printf 'wg-quick'; fi
+}
+
+wg_installed() {
+  { [[ -n "$(setting_get WG_QUICK_PATH)" ]] || command -v wg-quick >/dev/null 2>&1; } && [[ -f "$WG_CONF" ]]
+}
 wg_running()   { command -v wg >/dev/null 2>&1 && wg show "$WG_IFACE" >/dev/null 2>&1; }
 wg_enabled()   { systemctl is-enabled --quiet "$WG_SERVICE" 2>/dev/null; }
 
 install_wireguard_tools() {
-  command -v wg-quick >/dev/null 2>&1 && return 0
+  if [[ -n "$(setting_get WG_QUICK_PATH)" ]] || command -v wg-quick >/dev/null 2>&1; then return 0; fi
   state_set WG_TOOLS_ADDED 1
   pm_install wireguard-tools
   command -v wg-quick >/dev/null 2>&1 || die "wg-quick: command not found after installation"
 }
 
 install_wgcf() {
-  if [[ -n "$(setting_get WGCF_PATH)" && -x "$(setting_get WGCF_PATH)" ]]; then return 0; fi
-  local json tag url tmp
+  local custom json tag url name d tmp
+  custom="$(setting_get WGCF_PATH)"
+  if [[ -n "$custom" && -x "$custom" ]]; then return 0; fi
   json="$(http_get "https://api.github.com/repos/${WGCF_REPO}/releases/latest")" \
     || die "Could not query the GitHub API for ${WGCF_REPO}."
   tag="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -n1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
   url="$(printf '%s' "$json" | grep -o '"browser_download_url": *"[^"]*"' | sed 's/.*"\(https[^"]*\)"$/\1/' | grep -E 'linux_amd64$' | head -n1 || true)"
   if [[ -x "$WGCF_BIN_DEFAULT" && "$tag" == "$(state_get WGCF_TAG)" ]]; then
-    log "wgcf is up to date (${tag})."; return 0
+    log "wgcf is up to date (${tag})."
+    return 0
   fi
   [[ -n "$url" ]] || die "No linux_amd64 wgcf asset found in release ${tag:-unknown}."
   [[ -x "$WGCF_BIN_DEFAULT" ]] || state_set WGCF_BIN_ADDED 1
-  tmp="$(mktemp)"
+  d="$(tmp_dir)"
+  name="$(basename "$url")"
+  tmp="${d}/${name}"
   http_get "$url" "$tmp"
-  install -m 0755 "$tmp" "$WGCF_BIN_DEFAULT"
-  rm -f "$tmp"
+  verify_download "$tmp" "$name" "$json"
+  install -D -m 0755 "$tmp" "$WGCF_BIN_DEFAULT"
   state_set WGCF_TAG "$tag"
   log "Installed wgcf ${tag}"
 }
@@ -1226,8 +1425,11 @@ apply_wg_settings() {
   [[ -f "$src" ]] || die "WireGuard profile is missing: ${src}"
   ep="$(setting_get WG_ENDPOINT)"
   strip="$(setting_get WG_STRIP_DNS)"
-  tmp="$(mktemp)"
+  tmp="$(tmp_file)"
   cp "$src" "$tmp"
+  # wg-quick runs PreUp/PostUp/PreDown/PostDown lines as root. The profile comes from Cloudflare's
+  # API through wgcf and never needs them, so they are removed rather than trusted.
+  sed -i -E '/^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|SaveConfig)[[:space:]]*=/Id' "$tmp"
   [[ "$strip" == "1" ]] && sed -i '/^DNS[[:space:]]*=/d' "$tmp"
   [[ -z "$ep" ]] || sed -i "s|^Endpoint[[:space:]]*=.*|Endpoint = ${ep}|" "$tmp"
   mkdir -p "$(dirname "$WG_CONF")"
@@ -1254,16 +1456,14 @@ wg_start() {
   wg_installed || die "wg-quick: command not found (WireGuard is not installed)"
   if warp_running; then die "CONFLICT:warp - WARP is connected; WireGuard cannot start at the same time."; fi
   ensure_prepared
-  wg_running && wg-quick down "$WG_IFACE" >/dev/null 2>&1 || true
+  if wg_running; then "$(wg_quick_bin)" down "$WG_IFACE" >/dev/null 2>&1 || true; fi
   apply_wg_settings
-  wg-quick up "$WG_IFACE"
+  "$(wg_quick_bin)" up "$WG_IFACE"
   log "WireGuard tunnel is up."
 }
 
 wg_stop() {
-  if command -v wg-quick >/dev/null 2>&1 && wg_running; then
-    wg-quick down "$WG_IFACE" >/dev/null 2>&1 || true
-  fi
+  if wg_running; then "$(wg_quick_bin)" down "$WG_IFACE" >/dev/null 2>&1 || true; fi
   return 0
 }
 
@@ -1306,12 +1506,13 @@ confirm_tunnel() {
 kill_switch() {
   local failed=0
   step "$(msg kill_start)"
-  set_system_proxy "" || failed=1
+  clear_managed_proxy || failed=1
   wg_stop || failed=1
   warp_stop || failed=1
   systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
   if spoof_running || warp_running || wg_running; then failed=1; fi
-  ensure_encrypted_dns || failed=1
+  # Back up your settings first if this is the very first action, then keep encrypted DNS on.
+  ( ensure_prepared ) || failed=1
   if (( failed == 0 )); then log "$(msg kill_done)"; else warn "$(msg kill_partial)"; fi
   return 0
 }
@@ -1324,10 +1525,15 @@ run_restore_original() {
 }
 
 run_uninstaller() {
-  if [[ -f "$UNINSTALL_PATH" ]]; then exec bash "$UNINSTALL_PATH"; fi
-  TMP_DIR="$(mktemp -d)"
-  http_get "${REPO_RAW}/uninstall.sh" "${TMP_DIR}/uninstall.sh" || die "Could not download uninstall.sh."
-  exec bash "${TMP_DIR}/uninstall.sh"
+  local d
+  if [[ -f "$UNINSTALL_PATH" ]]; then
+    bash "$UNINSTALL_PATH"
+    exit $?
+  fi
+  d="$(tmp_dir)"
+  http_get "${REPO_RAW}/uninstall.sh" "${d}/uninstall.sh" || die "Could not download uninstall.sh."
+  bash "${d}/uninstall.sh"
+  exit $?
 }
 
 # -----------------------------------------------------------------------------
@@ -1343,13 +1549,14 @@ tool_status_line() {  # <tool> <label>
   else
     parts+=("$(msg st_missing)")
   fi
-  local IFS=', '
-  printf '  %-12s : %s\n' "$2" "${parts[*]}"
+  local joined
+  printf -v joined '%s, ' "${parts[@]}"
+  printf '  %-12s : %s\n' "$2" "${joined%, }"
 }
 
 show_status() {
   local dns
-  dns="$(grep -q 'Managed by Security DNS' "$RESOLVED_CONF" 2>/dev/null && echo "DNS-over-TLS ($(setting_get DNS_SERVERS))" || echo "-")"
+  dns="$(grep -q 'Managed by Security DNS' "$DROPIN_FILE" 2>/dev/null && echo "DNS-over-TLS ($(setting_get DNS_SERVERS))" || echo "-")"
   printf '\n'
   tool_status_line spoofdpi "SpoofDPI"
   tool_status_line warp "WARP"
@@ -1362,18 +1569,18 @@ show_status() {
 # -----------------------------------------------------------------------------
 check_updates() {
   step "Security DNS script"
-  local remote=""
+  local remote="" d before
   remote="$(http_get "${REPO_RAW}/install.sh" 2>/dev/null | sed -n 's/^readonly SCRIPT_VERSION="\(.*\)"$/\1/p' | head -n1 || true)"
   if [[ -z "$remote" ]]; then
     warn "Could not read the remote script version."
   elif [[ "$remote" != "$SCRIPT_VERSION" ]]; then
     if confirm "Update the script from ${SCRIPT_VERSION} to ${remote}?"; then
-      TMP_DIR="$(mktemp -d)"
-      http_get "${REPO_RAW}/install.sh" "${TMP_DIR}/install.sh"
-      http_get "${REPO_RAW}/uninstall.sh" "${TMP_DIR}/uninstall.sh"
-      if bash -n "${TMP_DIR}/install.sh" && bash -n "${TMP_DIR}/uninstall.sh"; then
-        install -m 0755 "${TMP_DIR}/install.sh" "$APP_BIN"
-        install -m 0755 "${TMP_DIR}/uninstall.sh" "$UNINSTALL_PATH"
+      d="$(tmp_dir)"
+      http_get "${REPO_RAW}/install.sh" "${d}/install.sh"
+      http_get "${REPO_RAW}/uninstall.sh" "${d}/uninstall.sh"
+      if bash -n "${d}/install.sh" && bash -n "${d}/uninstall.sh"; then
+        install -m 0755 "${d}/install.sh" "$APP_BIN"
+        install -m 0755 "${d}/uninstall.sh" "$UNINSTALL_PATH"
         log "Script updated to ${remote}. Reopen the menu to use it."
       else
         warn "Downloaded scripts failed the syntax check; keeping the current version."
@@ -1385,7 +1592,11 @@ check_updates() {
 
   if spoof_installed; then
     step "SpoofDPI"
-    guarded spoof_install && { spoof_running && guarded spoof_start; }
+    before="$(state_get SPOOFDPI_TAG)"
+    # Restart only when a newer version was really installed.
+    if guarded spoof_install && [[ "$(state_get SPOOFDPI_TAG)" != "$before" ]] && spoof_running; then
+      guarded spoof_start
+    fi
   fi
   if warp_installed; then
     step "Cloudflare WARP"
@@ -1401,31 +1612,47 @@ check_updates() {
 # Application install (first run)
 # -----------------------------------------------------------------------------
 install_launcher() {
-  mkdir -p "$LIB_DIR"
-  local self="${BASH_SOURCE[0]:-}" self_real="" dir
-  [[ -n "$self" && -f "$self" ]] && self_real="$(readlink -f "$self")"
+  mkdir -p "$LIB_DIR" "${LIB_DIR}/bin"
+  local self="${BASH_SOURCE[0]:-}" self_real="" dir d
+  if [[ -n "$self" && -f "$self" ]]; then self_real="$(readlink -f "$self")"; fi
   if [[ -n "$self_real" && "$self_real" != "$APP_BIN" ]]; then
     install -m 0755 "$self_real" "$APP_BIN"
   elif [[ -z "$self_real" ]]; then
-    TMP_DIR="$(mktemp -d)"
-    http_get "${REPO_RAW}/install.sh" "${TMP_DIR}/install.sh"
-    install -m 0755 "${TMP_DIR}/install.sh" "$APP_BIN"
+    d="$(tmp_dir)"
+    http_get "${REPO_RAW}/install.sh" "${d}/install.sh"
+    install -m 0755 "${d}/install.sh" "$APP_BIN"
   fi
   dir="$(dirname "${self_real:-/nonexistent}")"
   if [[ -f "${dir}/uninstall.sh" ]]; then
     install -m 0755 "${dir}/uninstall.sh" "$UNINSTALL_PATH"
   else
-    TMP_DIR="$(mktemp -d)"
-    http_get "${REPO_RAW}/uninstall.sh" "${TMP_DIR}/uninstall.sh"
-    install -m 0755 "${TMP_DIR}/uninstall.sh" "$UNINSTALL_PATH"
+    d="$(tmp_dir)"
+    http_get "${REPO_RAW}/uninstall.sh" "${d}/uninstall.sh"
+    install -m 0755 "${d}/uninstall.sh" "$UNINSTALL_PATH"
   fi
+
+  # Opens the menu in whichever terminal emulator this desktop has.
+  cat > "${LIB_DIR}/launch.sh" <<'EOF'
+#!/bin/sh
+cmd="sudo /usr/local/bin/security-dns"
+if command -v x-terminal-emulator >/dev/null 2>&1; then exec x-terminal-emulator -e $cmd
+elif command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- $cmd
+elif command -v konsole >/dev/null 2>&1; then exec konsole -e $cmd
+elif command -v xfce4-terminal >/dev/null 2>&1; then exec xfce4-terminal -x $cmd
+elif command -v xterm >/dev/null 2>&1; then exec xterm -e $cmd
+fi
+echo "No terminal emulator found. Run: sudo security-dns"
+sleep 5
+EOF
+  chmod 0755 "${LIB_DIR}/launch.sh"
+
   mkdir -p "$(dirname "$DESKTOP_FILE")"
   cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Security DNS
 Comment=Encrypted DNS, DPI bypass, and VPN-like tools
-Exec=x-terminal-emulator -e sudo ${APP_BIN}
+Exec=${LIB_DIR}/launch.sh
 Icon=network-vpn
 Terminal=false
 Categories=Network;Security;
@@ -1555,6 +1782,7 @@ run_menu() {
   require_root
   reconnect_terminal
   local choice
+  clear_stale_proxy
   while true; do
     print_menu
     read -r -p "$(msg choose)" choice || return 0
@@ -1595,7 +1823,8 @@ EOF
 }
 
 main() {
-  ERR_LOG="$(mktemp)"
+  RUN_TMP="$(mktemp -d)"
+  ERR_LOG="$(tmp_file)"
   detect_package_manager
   case "${1:-}" in
     --version) echo "$SCRIPT_VERSION" ;;

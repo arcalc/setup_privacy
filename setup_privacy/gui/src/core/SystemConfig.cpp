@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSysInfo>
 
 #ifdef Q_OS_WIN
@@ -20,6 +21,23 @@
 #endif
 
 namespace sdns {
+
+namespace {
+
+// Server addresses end up in a config file or a script, so only plain addresses are accepted.
+void validateDnsServers(const QStringList& servers, bool allowTlsName)
+{
+    static const QRegularExpression plain(QStringLiteral("^[0-9A-Fa-f:.]+$"));
+    static const QRegularExpression withName(QStringLiteral("^[0-9A-Fa-f:.]+(#[A-Za-z0-9.-]+)?$"));
+    if (servers.isEmpty())
+        throw OperationError(makeProblem(ProblemKind::Unknown, QStringLiteral("No DNS servers are configured.")));
+    for (const QString& server : servers) {
+        if (!(allowTlsName ? withName : plain).match(server).hasMatch())
+            throw OperationError(makeProblem(ProblemKind::Unknown, QStringLiteral("The DNS server \"%1\" is not valid.").arg(server)));
+    }
+}
+
+} // namespace
 
 #ifdef Q_OS_WIN
 // =============================================================================
@@ -93,6 +111,10 @@ if (Get-Command Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue) {
 
 bool SystemConfig::enableEncryptedDns(bool allowSkip)
 {
+    validateDnsServers(m_s.dnsServers, false);
+    static const QRegularExpression templateRe(QStringLiteral("^https://[^\\s<>|\\x22\\x27`]+$"));
+    if (!templateRe.match(m_s.dohTemplate).hasMatch())
+        throw OperationError(makeProblem(ProblemKind::Unknown, QStringLiteral("The DNS-over-HTTPS template is not valid.")));
     if (windowsBuild() < kMinDohBuild) {
         if (allowSkip)
             return false;
@@ -268,7 +290,11 @@ QJsonObject snapshotPath(const QString& path)
     const QFileInfo info(path);
     if (info.isSymLink()) {
         o[QStringLiteral("kind")] = QStringLiteral("link");
-        o[QStringLiteral("target")] = QFile::symLinkTarget(path);
+        // readlink keeps the link text exactly as it was (often a relative path), so undo is exact.
+        char buffer[4096];
+        const ssize_t length = ::readlink(path.toLocal8Bit().constData(), buffer, sizeof(buffer) - 1);
+        o[QStringLiteral("target")] = length > 0 ? QString::fromLocal8Bit(buffer, static_cast<int>(length))
+                                                 : QFile::symLinkTarget(path);
     } else if (info.exists()) {
         o[QStringLiteral("kind")] = QStringLiteral("file");
         o[QStringLiteral("data")] = QString::fromLatin1(readAll(path).toBase64());
@@ -374,6 +400,7 @@ QJsonObject SystemConfig::snapshot()
 
 bool SystemConfig::enableEncryptedDns(bool)
 {
+    validateDnsServers(m_s.dnsServers, true);
     if (platform::findTool(QStringLiteral("resolvectl")).isEmpty())
         throw OperationError(makeProblem(ProblemKind::ResolvedMissing,
                                          QStringLiteral("resolvectl: command not found (systemd-resolved is missing)")));
@@ -447,7 +474,7 @@ void SystemConfig::restore(const QJsonObject& snap)
             const QString path = user.home + QStringLiteral("/.config/kioslaverc");
             restorePath(path, kdeSnap);
             if (QFileInfo::exists(path))
-                (void)::chown(path.toLocal8Bit().constData(), user.uid, user.gid);
+                (void)::lchown(path.toLocal8Bit().constData(), user.uid, user.gid);   // lchown: never follow a symlink a user may have planted
         }
     }
 
