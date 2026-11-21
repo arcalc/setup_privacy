@@ -60,6 +60,10 @@ Both versions offer the same tools, the same kill switch, the same settings, and
 
 **Encrypted DNS** is always part of the setup: DNS-over-TLS on Linux (`systemd-resolved`) and DNS-over-HTTPS on Windows. Plaintext fallback and DNS leaks to your router's resolver are blocked. On Windows builds older than 19041 (Windows 10 version 2004), system DoH is not available and the app tells you to enable Secure DNS in your browser instead.
 
+**SpoofDPI and DNS.** SpoofDPI looks up website names itself, and by default it does that over plaintext DNS, which would show every site name to your ISP. The app therefore starts it with its DNS set to the system resolver (`--dns-mode system`), so those lookups use the encrypted DNS above. If a SpoofDPI build has no such option, the app warns you. Check with a DNS leak test.
+
+**Safety measures.** The data folder is readable only by administrators (Windows: Administrators and SYSTEM). Downloads are checked against the release checksum or GitHub's published digest, and Windows installers must carry the publisher's signature. Settings are validated every time they are read. Backups are written atomically, so a crash cannot destroy your original settings. WireGuard profiles have script lines removed, and a proxy left behind after a reboot is cleared automatically.
+
 **Quick modes** start one tool and stop the other two. Starting WARP and WireGuard together is blocked because both route all traffic.
 
 ---
@@ -263,7 +267,7 @@ It installs to `C:\ProgramData\SecurityDNS` and creates **Security DNS** shortcu
 ### The CLI menu
 
 ```text
-  Security DNS v3.0.0
+  Security DNS v3.1.1
 
   Quick modes (start one tool and stop the others):
   1) SpoofDPI          keeps your public IP; bypasses DPI on this computer

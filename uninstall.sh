@@ -25,8 +25,10 @@ readonly SERVICE_NAME="security-dns"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly WG_SERVICE="wg-quick@security-dns"
 readonly WG_CONF="/etc/wireguard/security-dns.conf"
-readonly WGCF_BIN="/usr/local/bin/wgcf"
-readonly SPOOF_BIN="/usr/local/bin/spoofdpi"
+readonly WGCF_BIN="/usr/local/lib/security-dns/bin/wgcf"
+readonly LEGACY_WGCF_BIN="/usr/local/bin/wgcf"
+readonly SPOOF_BIN="/usr/local/lib/security-dns/bin/spoofdpi"
+readonly LEGACY_SPOOF_BIN="/usr/local/bin/spoofdpi"
 readonly APP_BIN="/usr/local/bin/security-dns"
 readonly LIB_DIR="/usr/local/lib/security-dns"
 readonly DESKTOP_FILE="/usr/share/applications/security-dns.desktop"
@@ -35,6 +37,7 @@ readonly STATE_FILE="${STATE_DIR}/state.env"
 readonly BACKUP_DIR="${STATE_DIR}/backup"
 readonly USERS_FILE="${BACKUP_DIR}/users.tsv"
 readonly RESOLVED_CONF="/etc/systemd/resolved.conf"
+readonly DROPIN_FILE="/etc/systemd/resolved.conf.d/90-security-dns.conf"
 readonly RESOLV_CONF="/etc/resolv.conf"
 readonly ENV_FILE="/etc/environment"
 readonly WARP_APT_LIST="/etc/apt/sources.list.d/cloudflare-client.list"
@@ -105,7 +108,7 @@ restore_file() {  # <path> <key> [owner]
     return 0
   fi
   if [[ -n "$owner" ]]; then
-    chown "$owner" "$path"
+    chown -h "$owner" "$path"   # -h: never follow a symlink a user may have planted
   fi
   log "Restored ${path}"
 }
@@ -168,7 +171,16 @@ restore_network_settings() {
     done < "$USERS_FILE"
   fi
 
-  restore_file "$RESOLVED_CONF" resolved.conf
+  restore_file "$DROPIN_FILE" dropin
+  # If no backup record exists for the drop-in, it was created by this app, so remove it.
+  if grep -q 'Managed by Security DNS' "$DROPIN_FILE" 2>/dev/null; then
+    rm -f "$DROPIN_FILE"
+    log "Removed ${DROPIN_FILE}"
+  fi
+  # Earlier versions replaced resolved.conf itself; undo that only if the file is still ours.
+  if grep -q 'Managed by Security DNS' "$RESOLVED_CONF" 2>/dev/null; then
+    restore_file "$RESOLVED_CONF" resolved.conf
+  fi
   restore_file "$RESOLV_CONF" resolv.conf
   systemctl restart systemd-resolved 2>/dev/null || warn "Could not restart systemd-resolved."
 }
@@ -193,6 +205,7 @@ run_restore_only() {
 
   state_set MODE R
   state_set DNS_RESTORED 1
+  state_set PROXY_MANAGED 0
 
   if [[ "$PENDING" -eq 1 ]]; then
     warn "Some desktop settings were not restored because a user is not logged in. Run this again after that user logs in."
@@ -213,7 +226,9 @@ remove_warp() {
   step "Reverting Cloudflare WARP"
   if command -v warp-cli >/dev/null 2>&1; then
     if [[ "$(state_value WARP_REGISTERED_BY_US)" == "1" ]]; then
-      warp-cli --accept-tos registration delete >/dev/null 2>&1 || warn "Could not delete the WARP registration."
+      warp-cli --accept-tos registration delete >/dev/null 2>&1 \
+        || warp-cli --accept-tos delete >/dev/null 2>&1 \
+        || warn "Could not delete the WARP registration."
     fi
     warp-cli --accept-tos disconnect >/dev/null 2>&1 || true
   fi
@@ -257,14 +272,16 @@ remove_wireguard() {
   fi
 
   if [[ "$(state_value WGCF_BIN_ADDED)" == "1" ]]; then
-    rm -f "$WGCF_BIN"
+    if [[ -e "$WGCF_BIN" ]]; then rm -f "$WGCF_BIN"; else rm -f "$LEGACY_WGCF_BIN"; fi
     log "Removed wgcf"
   fi
 }
 
 remove_files() {
   step "Removing Security DNS files"
-  rm -f "$SPOOF_BIN"
+  if [[ -n "$(state_value SPOOFDPI_TAG)" && ! -e "$SPOOF_BIN" ]]; then
+    rm -f "$LEGACY_SPOOF_BIN"   # installed there by an earlier version of this app
+  fi
   rm -f "$DESKTOP_FILE"
   rm -rf "$LIB_DIR"
   rm -f "$APP_BIN"
@@ -311,7 +328,7 @@ remove_tool_spoofdpi() {
   systemctl daemon-reload
   systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
   if [[ -n "$(state_value SPOOFDPI_TAG)" ]]; then
-    rm -f "$SPOOF_BIN"
+    if [[ -e "$SPOOF_BIN" ]]; then rm -f "$SPOOF_BIN"; else rm -f "$LEGACY_SPOOF_BIN"; fi
     state_unset SPOOFDPI_TAG
     log "SpoofDPI program removed"
   else
@@ -371,4 +388,7 @@ main() {
   fi
 }
 
-main "$@"
+# Set SECURITY_DNS_SOURCE_ONLY=1 to load the functions without running (for tests).
+if [[ "${SECURITY_DNS_SOURCE_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi

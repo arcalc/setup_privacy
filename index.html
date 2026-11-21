@@ -2,18 +2,22 @@
 <html lang="en" dir="ltr" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hB9BnKqugCpNLWd7B5LVmSmOVIoURsxccbEp/s/G3wo=' 'sha256-4hi6uZlM8QFOq7xQwl4lBUhFaTgfTiFN2o+8kDlYrTM='; style-src 'sha256-1olvpiSbgL5DJH7aIWDs+U6NHoYrD6Ph3XMPitx+ZDE='; img-src data:; base-uri 'none'; form-action 'none'" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Security DNS - Hide your DNS and bypass DPI</title>
-  <meta name="description" content="Security DNS encrypts your DNS queries and bypasses Deep Packet Inspection, so your ISP cannot easily see the websites you visit. Open source, MIT licensed." />
+  <meta name="description" content="Security DNS encrypts your DNS, bypasses DPI, and lets you control SpoofDPI, Cloudflare WARP, and WireGuard from a desktop app (GUI) or a command-line tool (CLI). Open source, MIT licensed." />
   <script>
-    // Apply the saved theme before first paint to avoid a flash of the wrong colors.
+    // Apply the saved theme, or else the system preference, before first paint to avoid a flash.
     (function () {
+      var theme = 'dark';
       try {
         var saved = localStorage.getItem('sdns-theme');
-        if (saved === 'light' || saved === 'dark') {
-          document.documentElement.setAttribute('data-theme', saved);
-        }
+        if (saved === 'light' || saved === 'dark') theme = saved;
+        else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) theme = 'light';
       } catch (e) { /* storage unavailable: keep the default theme */ }
+      document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
   <style>
@@ -28,8 +32,8 @@
         Light mode
           #FBF6DC  yellowish-white   (background)
           #F3EBC8  warm cream        (cards and code blocks)
-          #8C6D1F  deep gold         (primary text and accents)
-          #9C6B17  muted amber       (secondary text and labels)
+          #7A5C14  deep gold         (primary text and accents)
+          #86590E  muted amber       (secondary text and labels)
     */
     :root {
       --bg: #121212;
@@ -43,11 +47,11 @@
     [data-theme="light"] {
       --bg: #FBF6DC;
       --surface: #F3EBC8;
-      --fg: #8C6D1F;
-      --accent: #8C6D1F;
-      --soft: #9C6B17;
-      --line: rgba(140, 109, 31, 0.3);
-      --line-strong: rgba(140, 109, 31, 0.65);
+      --fg: #7A5C14;
+      --accent: #7A5C14;
+      --soft: #86590E;
+      --line: rgba(122, 92, 20, 0.3);
+      --line-strong: rgba(122, 92, 20, 0.65);
     }
 
     *, *::before, *::after { box-sizing: border-box; }
@@ -77,7 +81,7 @@
     p { margin: 0; }
     .lead { font-size: 1.1rem; max-width: 620px; margin-top: 24px; opacity: 0.85; }
     .eyebrow {
-      font-size: 0.75rem; letter-spacing: 0.25em; text-transform: uppercase;
+      font-size: 0.9rem; font-weight: 600;
       margin-bottom: 20px; color: var(--soft);
     }
     .section-intro { margin-top: 14px; max-width: 620px; color: var(--soft); }
@@ -103,7 +107,7 @@
     .btn-solid:hover { background: transparent; color: var(--fg); }
 
     /* Hero */
-    .hero { padding: 120px 0 110px; }
+    .hero { padding: 120px 0 110px; border-top: none; }
     .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 40px; }
 
     /* Features */
@@ -113,8 +117,7 @@
       background: var(--line); border: 1px solid var(--line);
     }
     .cell { background: var(--surface); padding: 32px 28px; }
-    .num { font-size: 0.8rem; letter-spacing: 0.15em; color: var(--soft); }
-    .cell h3 { margin: 14px 0 10px; }
+    .cell h3 { margin: 0 0 10px; }
     .cell p { font-size: 0.95rem; opacity: 0.85; }
 
     /* Install */
@@ -126,7 +129,9 @@
       position: relative; border: 1px solid var(--line); border-radius: 8px;
       background: var(--bg);
     }
+    .code { direction: ltr; }
     .code pre {
+      text-align: left;
       margin: 0; padding: 16px 110px 16px 16px; overflow-x: auto;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.85rem; line-height: 1.5; color: var(--fg);
@@ -156,14 +161,14 @@
     .cards-2 { display: grid; gap: 24px; margin-top: 48px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
     .choice { border: 1px solid var(--line); border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 14px; }
     .choice:hover { border-color: var(--accent); }
-    .badge { align-self: flex-start; font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
+    .badge { align-self: flex-start; font-size: 0.85rem; font-weight: 600;
              border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 12px; color: var(--soft); }
     .choice ul { margin: 0; padding-inline-start: 20px; }
     .choice li { margin: 6px 0; font-size: 0.95rem; }
     .choice .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: auto; padding-top: 10px; }
     .small-note { font-size: 0.85rem; color: var(--soft); }
     .foot-grid { display: grid; gap: 28px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-    .foot-grid h4 { margin: 0 0 8px; font-size: 0.8rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--soft); }
+    .foot-grid h4 { margin: 0 0 8px; font-size: 0.9rem; font-weight: 600; color: var(--soft); }
     .foot-grid p { margin: 0; }
     .foot-bottom { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
     footer { border-top: 1px solid var(--line); padding: 36px 0; font-size: 0.88rem; }
@@ -177,6 +182,15 @@
       .copy { top: 8px; }
     }
     html[lang="ar"] .copy { inset-inline-end: 10px; }
+  
+    .warp-note { margin-top: 20px; }
+    .after-title { margin-top: 56px; font-size: 1.25rem; }
+    .foot-link { margin-top: 8px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -184,13 +198,13 @@
   <header>
     <div class="wrap nav">
       <a href="#top" class="brand" data-i18n="brand">Security DNS</a>
-      <nav class="nav-links">
+      <nav class="nav-links" aria-label="Main">
         <a href="#download" class="hide-sm" data-i18n="navDownload">Download</a>
         <a href="#features" class="hide-sm" data-i18n="navFeatures">Features</a>
         <a href="#install" class="hide-sm" data-i18n="navInstall">Install</a>
         <a href="#limits" class="hide-sm" data-i18n="navLimits">Limits</a>
         <button type="button" class="btn" id="theme-toggle" data-i18n="themeLight">Light</button>
-        <button type="button" class="btn" id="lang-toggle">العربية</button>
+        <button type="button" class="btn" id="lang-toggle" lang="ar" aria-label="Switch language">العربية</button>
       </nav>
     </div>
   </header>
@@ -198,15 +212,15 @@
   <main id="top">
 
     <!-- Hero -->
-    <section class="hero" style="border-top:none">
+    <section class="hero">
       <div class="wrap">
-        <p class="eyebrow" data-i18n="heroKicker">Open source &middot; Linux &middot; Windows &middot; MIT</p>
+        <p class="eyebrow" data-i18n="heroKicker">Open source, for Linux and Windows, MIT licensed</p>
         <h1 data-i18n="heroTitle">Stop your ISP from reading your DNS.</h1>
         <p class="lead" data-i18n="heroText">Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same unless you enable the optional WARP mode.</p>
         <div class="hero-actions">
           <a href="#download" class="btn btn-solid" data-i18n="ctaGui">Download GUI Version</a>
           <a href="#install" class="btn btn-solid" data-i18n="ctaCli">Download CLI Version</a>
-          <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" class="btn" data-i18n="ctaSource">View source on GitHub</a>
+          <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener noreferrer" class="btn" data-i18n="ctaSource">View source on GitHub</a>
         </div>
       </div>
     </section>
@@ -227,8 +241,8 @@
               <li data-i18n="guiB3">English and Arabic, dark and light themes</li>
             </ul>
             <div class="actions">
-              <a href="https://github.com/arcalc/setup_privacy/releases/latest" target="_blank" rel="noopener" class="btn btn-solid" data-i18n="guiBtn">Download GUI Version</a>
-              <a href="https://github.com/arcalc/setup_privacy/tree/main/gui" target="_blank" rel="noopener" class="btn" data-i18n="guiBuild">Build from source</a>
+              <a href="https://github.com/arcalc/setup_privacy/releases/latest" target="_blank" rel="noopener noreferrer" class="btn btn-solid" data-i18n="guiBtn">Download GUI Version</a>
+              <a href="https://github.com/arcalc/setup_privacy/tree/main/gui" target="_blank" rel="noopener noreferrer" class="btn" data-i18n="guiBuild">Build from source</a>
             </div>
             <p class="small-note" data-i18n="guiNote">If no release is listed yet, build it from source with Qt6 and CMake (see the README).</p>
           </article>
@@ -243,7 +257,7 @@
             </ul>
             <div class="actions">
               <a href="#install" class="btn btn-solid" data-i18n="cliBtn">Download CLI Version</a>
-              <a href="https://github.com/arcalc/setup_privacy/tree/main/cli" target="_blank" rel="noopener" class="btn" data-i18n="cliScripts">View the scripts</a>
+              <a href="https://github.com/arcalc/setup_privacy/tree/main/cli" target="_blank" rel="noopener noreferrer" class="btn" data-i18n="cliScripts">View the scripts</a>
             </div>
           </article>
         </div>
@@ -256,15 +270,15 @@
         <h2 data-i18n="featTitle">How it protects you</h2>
         <p class="section-intro" data-i18n="featIntro">Two independent layers work together: encrypted DNS and a local proxy that defeats common DPI techniques.</p>
         <div class="grid-3">
-          <article class="cell"><span class="num">01</span><h3 data-i18n="f1Title">Encrypted DNS</h3><p data-i18n="f1Text">DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.</p></article>
-          <article class="cell"><span class="num">02</span><h3 data-i18n="f2Title">DPI bypass proxy</h3><p data-i18n="f2Text">SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.</p></article>
-          <article class="cell"><span class="num">03</span><h3 data-i18n="f3Title">Zero configuration</h3><p data-i18n="f3Text">One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.</p></article>
-          <article class="cell"><span class="num">04</span><h3 data-i18n="f4Title">Perfect undo</h3><p data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p></article>
-          <article class="cell"><span class="num">05</span><h3 data-i18n="f5Title">Leak protection</h3><p data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p></article>
-          <article class="cell"><span class="num">06</span><h3 data-i18n="f6Title">Open and auditable</h3><p data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p></article>
-          <article class="cell"><span class="num">07</span><h3 data-i18n="f7Title">Advanced Tool Manager</h3><p data-i18n="f7Text">Install, start, stop, enable, disable, or uninstall SpoofDPI, WARP, and WireGuard one by one. Each tool works on its own.</p></article>
-          <article class="cell"><span class="num">08</span><h3 data-i18n="f8Title">Kill switch</h3><p data-i18n="f8Text">One button or command stops every proxy and tunnel at once and keeps encrypted DNS on. It is an emergency off switch, not a firewall.</p></article>
-          <article class="cell"><span class="num">09</span><h3 data-i18n="f9Title">Fully customizable</h3><p data-i18n="f9Text">Choose ports, DNS servers, the WireGuard endpoint, and tool paths. Every setting has a short explanation.</p></article>
+          <article class="cell"><h3 data-i18n="f1Title">Encrypted DNS</h3><p data-i18n="f1Text">DNS-over-TLS on Linux and DNS-over-HTTPS on Windows, both through Cloudflare 1.1.1.1. Queries are never sent in plaintext.</p></article>
+          <article class="cell"><h3 data-i18n="f2Title">DPI bypass proxy</h3><p data-i18n="f2Text">SpoofDPI runs locally and splits TLS handshakes so inspection equipment cannot read the website name in a single packet.</p></article>
+          <article class="cell"><h3 data-i18n="f3Title">Zero configuration</h3><p data-i18n="f3Text">One command sets up the proxy, DNS, and system proxy settings. The latest SpoofDPI release is fetched automatically.</p></article>
+          <article class="cell"><h3 data-i18n="f4Title">Perfect undo</h3><p data-i18n="f4Text">Every changed setting is backed up first. The uninstaller restores the exact previous state, file by file.</p></article>
+          <article class="cell"><h3 data-i18n="f5Title">Leak protection</h3><p data-i18n="f5Text">Plaintext fallbacks are disabled. Linux routes all lookups through the encrypted resolver, and Windows disables UDP fallback.</p></article>
+          <article class="cell"><h3 data-i18n="f6Title">Open and auditable</h3><p data-i18n="f6Text">Plain shell and PowerShell scripts with no binary blobs from us. Downloads are checksum-verified when the release publishes checksums.</p></article>
+          <article class="cell"><h3 data-i18n="f7Title">Advanced Tool Manager</h3><p data-i18n="f7Text">Install, start, stop, enable, disable, or uninstall SpoofDPI, WARP, and WireGuard one by one. Each tool works on its own.</p></article>
+          <article class="cell"><h3 data-i18n="f8Title">Kill switch</h3><p data-i18n="f8Text">One button or command stops every proxy and tunnel at once and keeps encrypted DNS on. It is an emergency off switch, not a firewall.</p></article>
+          <article class="cell"><h3 data-i18n="f9Title">Fully customizable</h3><p data-i18n="f9Text">Choose ports, DNS servers, the WireGuard endpoint, and tool paths. Every setting has a short explanation.</p></article>
         </div>
       </div>
     </section>
@@ -308,9 +322,9 @@
           <span data-i18n="reviewText">Piped scripts run immediately. The source is public, so you can read install.sh and install.ps1 first.</span>
         </div>
 
-        <p class="section-intro" style="margin-top:20px" data-i18n="warpNote">Optional VPN-like modes (Cloudflare WARP or WireGuard) are chosen in the built-in menu. They hide destination IPs from your ISP, but they change your public IP and may change your apparent country. Read the README first.</p>
+        <p class="section-intro warp-note" data-i18n="warpNote">Optional VPN-like modes (Cloudflare WARP or WireGuard) are chosen in the built-in menu. They hide destination IPs from your ISP, but they change your public IP and may change your apparent country. Read the README first.</p>
 
-        <h3 style="margin-top:56px; font-size:1.25rem" data-i18n="afterTitle">After installing</h3>
+        <h3 class="after-title" data-i18n="afterTitle">After installing</h3>
         <ol class="steps">
           <li data-i18n="after1">Restart your browser completely.</li>
           <li data-i18n="after2">Enable ECH (Encrypted Client Hello) in your browser to hide the website name from the network.</li>
@@ -355,7 +369,7 @@
       <div class="foot-grid">
         <div>
           <h4 data-i18n="footerPortfolio">Developer portfolio</h4>
-          <p><a href="https://arcalc.github.io/arcalc/" target="_blank" rel="noopener">arcalc.github.io/arcalc</a></p>
+          <p><a href="https://arcalc.github.io/arcalc/" target="_blank" rel="noopener noreferrer">arcalc.github.io/arcalc</a></p>
         </div>
         <div>
           <h4 data-i18n="footerContact">Support and security email</h4>
@@ -364,15 +378,16 @@
         <div>
           <h4 data-i18n="footerSecurityTitle">Security policy</h4>
           <p data-i18n="footerSecurityText">Found a vulnerability? Do NOT open a public issue. Report it privately by email, or through GitHub Private Vulnerability Reporting (Security tab, Report a vulnerability). This protects the community until a fix is released.</p>
-          <p style="margin-top:8px"><a href="https://github.com/arcalc/setup_privacy/blob/main/SECURITY.md" target="_blank" rel="noopener" data-i18n="footerReadPolicy">Read the full policy</a></p>
+          <p class="foot-link"><a href="https://github.com/arcalc/setup_privacy/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer" data-i18n="footerReadPolicy">Read the full policy</a></p>
         </div>
       </div>
       <div class="foot foot-bottom">
         <span data-i18n="footerText">Security DNS is open source under the MIT License.</span>
-        <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
+        <a href="https://github.com/arcalc/setup_privacy" target="_blank" rel="noopener noreferrer" data-i18n="footerLink">github.com/arcalc/setup_privacy</a>
       </div>
     </div>
   </footer>
+  <span id="copy-status" class="sr-only" role="status" aria-live="polite"></span>
 
   <script>
     // User-facing UI text only. Code comments and identifiers stay in English.
@@ -384,7 +399,7 @@
         navLimits: 'Limits',
         themeLight: 'Light',
         themeDark: 'Dark',
-        heroKicker: 'Open source \u00B7 Linux \u00B7 Windows \u00B7 MIT',
+        heroKicker: 'Open source, for Linux and Windows, MIT licensed',
         heroTitle: 'Stop your ISP from reading your DNS.',
         heroText: 'Security DNS encrypts your DNS lookups, runs a local DPI-bypass proxy, and configures your system automatically. Your public IP address stays the same unless you enable the optional WARP mode.',
         warpNote: 'Optional VPN-like modes (Cloudflare WARP or WireGuard) are chosen in the built-in menu. They hide destination IPs from your ISP, but they change your public IP and may change your apparent country. Read the README first.',
@@ -464,6 +479,8 @@
         footerSecurityTitle: 'Security policy',
         footerSecurityText: 'Found a vulnerability? Do NOT open a public issue. Report it privately by email, or through GitHub Private Vulnerability Reporting (Security tab, Report a vulnerability). This protects the community until a fix is released.',
         footerReadPolicy: 'Read the full policy',
+        pageTitle: 'Security DNS - Hide your DNS and bypass DPI',
+        switchLang: 'Switch language',
         footerText: 'Security DNS is open source under the MIT License.',
         footerLink: 'github.com/arcalc/setup_privacy'
       },
@@ -474,7 +491,7 @@
         navLimits: 'الحدود',
         themeLight: 'فاتح',
         themeDark: 'داكن',
-        heroKicker: 'مفتوح المصدر \u00B7 لينكس \u00B7 ويندوز \u00B7 MIT',
+        heroKicker: 'مفتوح المصدر، للينكس وويندوز، برخصة MIT',
         heroTitle: 'امنع مزود الإنترنت من قراءة استعلامات DNS الخاصة بك.',
         heroText: 'يشفّر Security DNS استعلامات DNS الخاصة بك، ويشغّل وكيلاً محلياً لتجاوز فحص الحزم العميق، ويهيّئ نظامك تلقائياً. يبقى عنوان IP العام لديك كما هو ما لم تفعّل وضع WARP الاختياري.',
         warpNote: 'أوضاع اختيارية تشبه VPN (Cloudflare WARP أو WireGuard) تختارها من القائمة المدمجة. تخفي عناوين الوجهات عن مزود الإنترنت، لكنها تغيّر عنوان IP العام لديك وقد تغيّر بلدك الظاهر. اقرأ ملف README أولاً.',
@@ -554,6 +571,8 @@
         footerSecurityTitle: 'سياسة الأمان',
         footerSecurityText: 'وجدت ثغرة أمنية؟ لا تفتح مشكلة عامة (public issue). أبلغ عنها بشكل خاص عبر البريد، أو عبر ميزة الإبلاغ الخاص عن الثغرات في GitHub (تبويب Security ثم Report a vulnerability). هذا يحمي المجتمع حتى يصدر الإصلاح.',
         footerReadPolicy: 'اقرأ السياسة كاملة',
+        pageTitle: 'Security DNS - اخفِ DNS وتجاوز فحص الحزم العميق',
+        switchLang: 'تغيير اللغة',
         footerText: 'Security DNS مفتوح المصدر بموجب رخصة MIT.',
         footerLink: 'github.com/arcalc/setup_privacy'
       }
@@ -574,7 +593,11 @@
       });
       updateThemeLabel();
       // The language button shows the language it switches to.
-      document.getElementById('lang-toggle').textContent = lang === 'ar' ? 'English' : 'العربية';
+      const langToggle = document.getElementById('lang-toggle');
+      langToggle.textContent = lang === 'ar' ? 'English' : 'العربية';
+      langToggle.lang = lang === 'ar' ? 'en' : 'ar';
+      langToggle.setAttribute('aria-label', dict.switchLang);
+      document.title = dict.pageTitle;
     }
 
     function currentTheme() {
@@ -628,8 +651,10 @@
           copied = fallbackCopy(text);
         }
         button.textContent = copied ? translations[currentLang].copied : translations[currentLang].copy;
+        document.getElementById('copy-status').textContent = copied ? translations[currentLang].copied : '';
         setTimeout(() => {
           button.textContent = translations[currentLang].copy;
+          document.getElementById('copy-status').textContent = '';
         }, 1600);
       });
     });
