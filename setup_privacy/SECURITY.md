@@ -9,7 +9,7 @@ Public reports put every user at risk before a fix exists.
 
 Report it privately in one of these ways:
 
-1. **Email:** [thearcalc@protonmail.com](mailto:thearcalc@protonmail.com)
+1. **Email:** [arcalc@proton.me](mailto:arcalc@proton.me)
 2. **GitHub Private Vulnerability Reporting:** open the repository's **Security** tab, choose
    **Report a vulnerability**, and fill in the form.
 
@@ -42,5 +42,5 @@ README (for example, destination IPs are visible to your ISP outside WARP and Wi
 
 ## Contact
 
-- Support and security email: thearcalc@protonmail.com
+- Support and security email: arcalc@proton.me
 - Developer portfolio: https://arcalc.github.io/arcalc/
