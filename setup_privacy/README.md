@@ -360,13 +360,13 @@ setup_privacy/
 
 **Do NOT open public issues for security vulnerabilities.** Report them privately:
 
-- Email: [thearcalc@protonmail.com](mailto:thearcalc@protonmail.com)
+- Email: [arcalc@proton.me](mailto:arcalc@proton.me)
 - GitHub: the **Security** tab, then **Report a vulnerability** (Private Vulnerability Reporting)
 
 This protects the community until a fix is released. See [SECURITY.md](SECURITY.md) for details.
 
 - **Developer portfolio:** https://arcalc.github.io/arcalc/
-- **Support and security email:** thearcalc@protonmail.com
+- **Support and security email:** arcalc@proton.me
 
 The same information is in the **About** screen of the GUI and the CLI, and in the footer of the website.
 
